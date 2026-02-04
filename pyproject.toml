@@ -1,0 +1,7 @@
+[project]
+name = "fus-process"
+version = "0.0.0"
+requires-python = "~=3.9"
+dependencies = [
+    "pyfus-lib~=1.0",
+]
