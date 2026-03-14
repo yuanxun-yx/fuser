@@ -49,7 +49,7 @@ def download_allen_ontology(
         file_name: Path,
         structure_id: int
 ):
-    url = (f'https://api.brain-map.org/api/v2/structure_graph_download/{structure_id}.json')
+    url = f'https://api.brain-map.org/api/v2/structure_graph_download/{structure_id}.json'
     with requests.get(url) as r:
         r.raise_for_status()
         content = json.loads(r.content)
@@ -64,7 +64,10 @@ def read_event_time(xlsx_path: Path):
     NONSOCIAL_EVENT_NAME = 'Modified Non-Social Event (Horizontal)'
 
     wb = openpyxl.load_workbook(xlsx_path)
-    ws = wb.active
+    if len(wb.sheetnames) == 1:
+        ws = wb.worksheets[0]
+    else:
+        ws = wb['Processed Events']
     if ws.max_column != 2:
         raise ValueError(f'"{xlsx_path}" has {ws.max_column} columns')
     social_events, nonsocial_events = None, None
@@ -111,7 +114,7 @@ def pipeline(config: dict):
 
     # Iconeous "brain" coordinate is stereotaxic
     # direction: left, anterior, superior (dorsal)
-    # origin: interaural
+    # origin: approx 4mm below Bregma
     # CCFv3 axis order: posterior, inferior, right
     # 'space' in header is incorrect
     # source: https://brain-map.org/support/documentation/api-allen-brain-connectivity-atlas
@@ -141,6 +144,8 @@ def pipeline(config: dict):
                 parts = event_time_path.stem.split('_')
                 subject = parts[0]
                 prefix = '_'.join(parts[:-3])
+
+                event_times = read_event_time(event_time_path)
 
                 bps_path = find_only_file(scan_dir, prefix, '.source.bps')
                 brain_to_lab = read_bps(bps_path)
@@ -184,7 +189,8 @@ def pipeline(config: dict):
                     s = voxel_annotations[:,i,:].T
                     plt.contour(s, levels=np.unique(s)[1:], colors='red', linewidths=.1)
                     plt.imshow(frame[:,i,:].T)
-                    plt.show()
+                    plt.savefig(Path('align') / f'{prefix}_{i}.png')
+                    plt.clf()
 
 
 def main():
