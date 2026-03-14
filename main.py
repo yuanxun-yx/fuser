@@ -2,9 +2,10 @@ from pathlib import Path
 import tomllib
 import argparse
 from tqdm import tqdm
+import json
 import logging
 from typing import Literal
-from urllib.request import urlretrieve
+import requests
 import numpy as np
 from numpy.linalg import inv
 import openpyxl
@@ -37,23 +38,25 @@ def download_annotation_volume(
 ):
     url = (f'https://download.alleninstitute.org/informatics-archive/current-release/'
            f'mouse_ccf/annotation/ccf_{ccf_version}/annotation_{resolution}.nrrd')
-    urlretrieve(url, file_name)
+    with requests.get(url, stream=True) as r:
+        r.raise_for_status()
+        with open(file_name, "wb") as f:
+            for chunk in r.iter_content():
+                f.write(chunk)
 
 
-def download_average_template(
+def download_allen_ontology(
         file_name: Path,
-        resolution: Literal[10, 25, 50, 100] = 10
+        structure_id: int
 ):
-    url = (f'https://download.alleninstitute.org/informatics-archive/current-release/'
-           f'mouse_ccf/average_template/average_template_{resolution}.nrrd')
-    urlretrieve(url, file_name)
-
-
-def download_atlas_mat(
-        file_name: Path
-):
-    url = "https://zenodo.org/records/4905862/files/allen_brain_atlas.mat"
-    urlretrieve(url, file_name)
+    url = (f'https://api.brain-map.org/api/v2/structure_graph_download/{structure_id}.json')
+    with requests.get(url) as r:
+        r.raise_for_status()
+        content = json.loads(r.content)
+        if not content['success']:
+            raise ValueError(f'ontology download failed')
+        with open(file_name, "w") as f:
+            json.dump(content['msg'][0], f)
 
 
 def read_event_time(xlsx_path: Path):
@@ -85,6 +88,18 @@ def read_event_time(xlsx_path: Path):
 
 
 def pipeline(config: dict):
+    ontology_path = Path(config['paths']['ontology'])
+    if not ontology_path.is_file():
+        download_allen_ontology(ontology_path, 1)  # adult mouse
+    with open(ontology_path, 'r') as f:
+        ontology = json.load(f)
+    regions = {}
+    queue = [ontology]
+    while len(queue) > 0:
+        item = queue.pop(0)
+        regions[item['id']] = item  # reference in tree
+        queue += item['children']
+
     annotation_path = Path(config['paths']['annotation'])
     if not annotation_path.is_file():
         download_annotation_volume(annotation_path)

@@ -8,6 +8,7 @@ dependencies = [
     "tqdm>=4.67",
     "openpyxl>=3.1",
     "scikit-image>=0.26",
+    "requests>=2.32",
     "iconeus-scan",
 ]
 
