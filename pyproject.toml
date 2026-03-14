@@ -1,7 +1,15 @@
 [project]
 name = "fus-process"
 version = "0.0.0"
-requires-python = "~=3.9"
+requires-python = ">=3.12"
 dependencies = [
-    "pyfus-lib~=1.0",
+    "pynrrd>=1.1",
+    "matplotlib>=3.10",
+    "tqdm>=4.67",
+    "openpyxl>=3.1",
+    "scikit-image>=0.26",
+    "iconeus-scan",
 ]
+
+[tool.uv.sources]
+iconeus-scan = { git = "https://github.com/yuanxun-yx/iconeus-scan", tag = "v0.1.0" }
