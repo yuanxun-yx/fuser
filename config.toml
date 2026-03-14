@@ -1,0 +1,4 @@
+[paths]
+data_root = './data'
+annotation = './annotation.nrrd'
+ontology = './ontology.json'
