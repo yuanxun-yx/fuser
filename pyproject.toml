@@ -9,8 +9,5 @@ dependencies = [
     "openpyxl>=3.1",
     "scikit-image>=0.26",
     "requests>=2.32",
-    "iconeus-scan",
+    "h5py>=3.16"
 ]
-
-[tool.uv.sources]
-iconeus-scan = { git = "https://github.com/yuanxun-yx/iconeus-scan", tag = "v0.1.0" }

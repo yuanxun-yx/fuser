@@ -1,0 +1,180 @@
+from dataclasses import dataclass
+from datetime import datetime
+import h5py
+import numpy as np
+
+
+@dataclass(frozen=True)
+class Metadata:
+    user: str
+    project: str
+    subject: str
+    session: str
+    scan: str
+    date_time: datetime
+    tag: str
+    code: str
+    type: str
+    comment: str
+    machine_sn: str
+    neuroscan_version: tuple[int, int, int]
+
+
+@dataclass(frozen=True)
+class Acquisition:
+    mode: str
+    robot_type: str
+    voxels_to_probe: np.ndarray
+    probe_to_lab: np.ndarray
+    time: np.ndarray
+    voxel_size: tuple[float, float, float]
+    dt: float
+
+
+@dataclass(frozen=True)
+class Scan:
+    metadata: Metadata
+    acquisition: Acquisition
+    data: np.ndarray
+
+
+def check_valid_transform(t: np.ndarray):
+    if t.shape != (4, 4):
+        raise ValueError(f"transform must be (4,4), got {t.shape}")
+
+    if not np.allclose(t[3], [0, 0, 0, 1]):
+        raise ValueError(f"last row must be [0,0,0,1], got {t[3]}")
+
+    r = t[:3, :3]
+    if np.linalg.matrix_rank(r) < 3:
+        raise ValueError(f"rotation determinant transform is singular and not invertible")
+
+
+def read_raw(ds: h5py.Dataset):
+    arr = ds[()]
+    if arr.size == 1:
+        return arr.item()
+    return arr
+
+
+def read_int(ds: h5py.Dataset) -> int:
+    return int(read_raw(ds))
+
+
+def read_str(ds: h5py.Dataset) -> str:
+    raw = read_raw(ds)
+    if isinstance(raw, bytes):
+        return raw.decode()
+    raise TypeError(f"type {type(raw)} cannot be converted to string")
+
+
+def read_metadata(f: h5py.File) -> Metadata:
+    scan_metadata_group = f['scanMetaData']
+    date_time = datetime.strptime(read_str(scan_metadata_group['Date']), '%Y-%m-%d %H:%M %S')
+    neuroscan_version_str = read_str(scan_metadata_group['Neuroscan_version'])
+    neuroscan_version = tuple(int(n) for n in neuroscan_version_str.split(' ')[-1].split('.'))
+
+    return Metadata(
+        user=read_str(scan_metadata_group['User_name']),
+        project=read_str(scan_metadata_group['Project_tag']),
+        subject=read_str(scan_metadata_group['Subject_tag']),
+        session=read_str(scan_metadata_group['Session_tag']),
+        scan=read_str(scan_metadata_group['Scan_tag']),
+        date_time=date_time,
+        tag=read_str(scan_metadata_group['Tag']),
+        code=read_str(scan_metadata_group['Code']),
+        type=read_str(scan_metadata_group['Type']),
+        comment=read_str(scan_metadata_group['Comment']),
+        machine_sn=read_str(scan_metadata_group['Machine_SN']),
+        neuroscan_version=neuroscan_version
+    )
+
+
+def read_scan(file) -> Scan:
+    with h5py.File(file, 'r') as f:
+        data: np.ndarray = read_raw(f['Data'])
+
+        metadata = read_metadata(f)
+
+        acq_metadata_group = f['acqMetaData']
+
+        acquisition_mode = read_str(acq_metadata_group['acquisitionMode'])
+        if acquisition_mode not in ['3Dscan', '4Dscan']:
+            raise ValueError(f"acquisition mode {acquisition_mode} is not supported")
+
+        robot_type = read_str(acq_metadata_group['robotType'])
+
+        dim_7_key = read_str(acq_metadata_group['key7'])
+        if dim_7_key != 'none':
+            raise NotImplementedError(f"dimension 7 {dim_7_key} is not supported")
+
+        img_dim_group = acq_metadata_group['imgDim']
+        dim_7 = read_int(img_dim_group['dim7'])
+        n_scan_repeat = read_int(img_dim_group['nscanRepeat'])
+        n_pose = read_int(img_dim_group['npose'])
+        n_block_repeat = read_int(img_dim_group['nblockRepeat'])
+        size_z = read_int(img_dim_group['sizeZ'])
+        size_y = read_int(img_dim_group['sizeY'])
+        size_x = read_int(img_dim_group['sizeX'])
+
+        if dim_7 != 1:
+            raise ValueError(f"dimension 7 has size {dim_7}, should be 1")
+        img_dim = (n_scan_repeat, n_pose, n_block_repeat, size_z, size_y, size_x)
+        if acquisition_mode == '3Dscan':
+            img_dim = img_dim[1:]
+        if data.shape != img_dim:
+            raise ValueError(f"data shape {data.shape} doesn't match given img dim {img_dim}")
+
+        # x, y, z for 3D slice
+        axes = list(range(len(img_dim)))
+        axes[-3:] = axes[-3:][::-1]
+        data = data.transpose(axes)
+
+        voxels_to_probe = read_raw(acq_metadata_group['voxelsToProbe'])
+        probe_to_lab = read_raw(acq_metadata_group['probeToLab'])
+
+        check_valid_transform(voxels_to_probe)
+        r = voxels_to_probe[:3, :3]
+        if not np.all(r == np.diag(np.diagonal(r))):
+            raise ValueError(f"voxels to probe rotation is not diagonal")
+
+        probe_to_lab_shape = (n_pose, 4, 4)
+        if probe_to_lab.shape != probe_to_lab_shape:
+            raise ValueError(f"probe to lab transform has shape {probe_to_lab_shape}, should be {probe_to_lab_shape}")
+        for i in range(n_pose):
+            check_valid_transform(probe_to_lab[i])
+
+        voxel_dim_group = acq_metadata_group['voxDim']
+        dt = read_raw(voxel_dim_group['dt'])
+        dx = read_raw(voxel_dim_group['dx'])
+        dy = read_raw(voxel_dim_group['dy'])
+        dz = read_raw(voxel_dim_group['dz'])
+
+        time = read_raw(acq_metadata_group['timeOriginal'])
+        time_original_shape = (n_scan_repeat * n_pose * n_block_repeat, 1)
+        if time.shape != time_original_shape:
+            raise ValueError(f"time origin has shape {time.shape}, should be {time_original_shape}")
+        time = time.reshape(img_dim[:-3])
+
+    acquisition = Acquisition(
+        mode=acquisition_mode,
+        robot_type=robot_type,
+        voxels_to_probe=voxels_to_probe,
+        probe_to_lab=probe_to_lab,
+        time=time,
+        voxel_size=(dx, dy, dz),
+        dt=dt
+    )
+
+    return Scan(
+        metadata=metadata,
+        acquisition=acquisition,
+        data=data
+    )
+
+
+def read_bps(file) -> np.ndarray:
+    with h5py.File(file, 'r') as f:
+        brain_to_lab = read_raw(f['BrainToLab'])
+    check_valid_transform(brain_to_lab)
+    return brain_to_lab

@@ -9,11 +9,12 @@ import requests
 import numpy as np
 from numpy.linalg import inv
 import openpyxl
-from iconeus_scan import read_scan, read_bps
 import matplotlib.pyplot as plt
 from skimage.segmentation import find_boundaries
 import nrrd
 from scipy.ndimage import affine_transform
+
+from read_scan import read_scan, read_bps
 
 # in um
 BRAIN_ORIGIN_CCFv3_COORD_POST_INF_ML = (5600, 5500, 5700)
@@ -150,47 +151,42 @@ def pipeline(config: dict):
                 bps_path = find_only_file(scan_dir, prefix, '.source.bps')
                 brain_to_lab = read_bps(bps_path)
 
+                angio_scan_path = find_only_file(scan_dir, prefix, 'angio3D.source.scan')
+                angio_scan = read_scan(angio_scan_path)
+
                 fus_scan_path = find_only_file(scan_dir, prefix, 'fus3D.source.scan')
                 fus_scan = read_scan(fus_scan_path)
 
-                t = 0
-                frame = fus_scan.data[:, :, :, t]
+                n_block_repeat = fus_scan.data.shape[2]
+                if n_block_repeat != 1:
+                    raise ValueError(f'block repeat number is {n_block_repeat}, we only handle 1 currently')
+                data = fus_scan.data.squeeze(2)
+                time = fus_scan.acquisition.time.squeeze(2)
 
+                r = 0
+                scan_repeat = data[r]
 
-                voxels_to_annotation_index = (
-                        inv(annotation_transform) @ brain_to_annotation @ inv(brain_to_lab) @
-                        fus_scan.probe_to_lab[t, :, :] @ fus_scan.voxels_to_probe
-                )
+                for i in range(scan_repeat.shape[0]):
+                    body = scan_repeat[i]
 
-                # threshold = 10.
-                # coords = np.argwhere(frame > threshold)
-                # voxels_to_brain = inv(brain_to_lab) @ fus_scan.probe_to_lab[t, :, :] @ fus_scan.voxels_to_probe
-                # indices = np.concatenate([coords, np.ones((coords.shape[0], 1))], axis=1)
-                # out = (voxels_to_brain @ indices.T).T
-                # world = out[:, :3]
-                # fig = plt.figure()
-                # ax = fig.add_subplot(projection='3d')
-                # ax.scatter(world[:, 0], world[:, 1], world[:, 2], c=frame[tuple(coords.T)], s=1)
-                # ax.set_xlabel('x')
-                # ax.set_ylabel('y')
-                # ax.set_zlabel('z')
-                # ax.set_aspect('equal')
-                # plt.show()
+                    voxels_to_annotation_index = (
+                            inv(annotation_transform) @ brain_to_annotation @ inv(brain_to_lab) @
+                            fus_scan.acquisition.probe_to_lab[i, :, :] @ fus_scan.acquisition.voxels_to_probe
+                    )
 
-                voxel_annotations = affine_transform(
-                    annotation_data,
-                    matrix=voxels_to_annotation_index,
-                    output_shape=frame.shape,
-                    order=0  # nearest neighbor
-                )
+                    voxel_annotations = affine_transform(
+                        annotation_data,
+                        matrix=voxels_to_annotation_index,
+                        output_shape=body.shape,
+                        order=0  # nearest neighbor
+                    )
 
-                n_slice = frame.shape[1]
-                for i in range(n_slice):
-                    s = voxel_annotations[:,i,:].T
-                    plt.contour(s, levels=np.unique(s)[1:], colors='red', linewidths=.1)
-                    plt.imshow(frame[:,i,:].T)
-                    plt.savefig(Path('align') / f'{prefix}_{i}.png')
-                    plt.clf()
+                    for j in range(body.shape[1]):
+                        s = voxel_annotations[:, j, :].T
+                        plt.contour(s, levels=np.unique(s)[1:], colors='red', linewidths=.1)
+                        plt.imshow(body[:, j, :].T)
+                        plt.savefig(Path('align') / f'{prefix}_{i}_{j}.png')
+                        plt.clf()
 
 
 def main():

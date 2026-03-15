@@ -1,5 +1,5 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = ">=3.12"
 
 [[package]]
@@ -207,7 +207,7 @@ name = "fus-process"
 version = "0.0.0"
 source = { virtual = "." }
 dependencies = [
-    { name = "iconeus-scan" },
+    { name = "h5py" },
     { name = "matplotlib" },
     { name = "openpyxl" },
     { name = "pynrrd" },
@@ -218,7 +218,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "iconeus-scan", git = "https://github.com/yuanxun-yx/iconeus-scan?tag=v0.1.0" },
+    { name = "h5py", specifier = ">=3.16" },
     { name = "matplotlib", specifier = ">=3.10" },
     { name = "openpyxl", specifier = ">=3.1" },
     { name = "pynrrd", specifier = ">=1.1" },
@@ -268,15 +268,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/41/8c/bbe98f813722b4873818a8db3e15aa3e625b59278566905ac439725e8070/h5py-3.16.0-cp314-cp314t-musllinux_1_2_x86_64.whl", hash = "sha256:346df559a0f7dcb31cf8e44805319e2ab24b8957c45e7708ce503b2ec79ba725", size = 5300253, upload-time = "2026-03-06T13:49:02.033Z" },
     { url = "https://files.pythonhosted.org/packages/32/9e/87e6705b4d6890e7cecdf876e2a7d3e40654a2ae37482d79a6f1b87f7b92/h5py-3.16.0-cp314-cp314t-win_amd64.whl", hash = "sha256:4c6ab014ab704b4feaa719ae783b86522ed0bf1f82184704ed3c9e4e3228796e", size = 3381671, upload-time = "2026-03-06T13:49:04.351Z" },
     { url = "https://files.pythonhosted.org/packages/96/91/9fad90cfc5f9b2489c7c26ad897157bce82f0e9534a986a221b99760b23b/h5py-3.16.0-cp314-cp314t-win_arm64.whl", hash = "sha256:faca8fb4e4319c09d83337adc80b2ca7d5c5a343c2d6f1b6388f32cfecca13c1", size = 2740706, upload-time = "2026-03-06T13:49:06.347Z" },
-]
-
-[[package]]
-name = "iconeus-scan"
-version = "0.1.0"
-source = { git = "https://github.com/yuanxun-yx/iconeus-scan?tag=v0.1.0#6860262f9a91b6f2fd7a7efbe7a8271f3df7514d" }
-dependencies = [
-    { name = "h5py" },
-    { name = "scipy" },
 ]
 
 [[package]]
