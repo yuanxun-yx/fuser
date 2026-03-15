@@ -12,7 +12,7 @@ import openpyxl
 import matplotlib.pyplot as plt
 from skimage.segmentation import find_boundaries
 import nrrd
-from scipy.ndimage import affine_transform
+from scipy.ndimage import affine_transform, label, binary_fill_holes, binary_closing
 
 from read_scan import read_scan, read_bps
 
@@ -163,11 +163,27 @@ def pipeline(config: dict):
                 data = fus_scan.data.squeeze(2)
                 time = fus_scan.acquisition.time.squeeze(2)
 
-                r = 0
-                scan_repeat = data[r]
+                threshold = np.percentile(data, 50, axis=(2, 3, 4), keepdims=True)
+                mask = data > threshold
 
-                for i in range(scan_repeat.shape[0]):
-                    body = scan_repeat[i]
+                data = np.log(data)
+                per_body_norm = np.percentile(data, 99, axis=(2, 3, 4), keepdims=True)
+                data /= per_body_norm
+
+                r = 0
+
+                for i in range(data.shape[1]):
+                    # morphology process each 3d mask
+                    body_mask = mask[r, i]
+                    labels, num = label(body_mask)
+                    sizes = np.bincount(labels.ravel())
+                    largest_label = np.argmax(sizes[1:]) + 1
+                    body_mask = labels == largest_label
+                    # ignore scan direction because it has much smaller size
+                    for j in range(body_mask.shape[1]):
+                        body_mask[:, j, :] = binary_closing(binary_fill_holes(body_mask[:, j, :]))
+
+                    body = data[r, i]
 
                     voxels_to_annotation_index = (
                             inv(annotation_transform) @ brain_to_annotation @ inv(brain_to_lab) @
@@ -181,12 +197,26 @@ def pipeline(config: dict):
                         order=0  # nearest neighbor
                     )
 
-                    for j in range(body.shape[1]):
-                        s = voxel_annotations[:, j, :].T
-                        plt.contour(s, levels=np.unique(s)[1:], colors='red', linewidths=.1)
-                        plt.imshow(body[:, j, :].T)
-                        plt.savefig(Path('align') / f'{prefix}_{i}_{j}.png')
-                        plt.clf()
+                    body_f = body.ravel()
+                    annotation_f = voxel_annotations.ravel()
+                    mask_f = body_mask.ravel()
+
+                    ids, inverse = np.unique(annotation_f, return_inverse=True)
+                    total_per_region = np.bincount(inverse)
+
+                    body_f = body_f[mask_f]
+                    inverse_masked = inverse[mask_f]
+
+                    sum_per_region = np.bincount(inverse_masked, weights=body_f)
+                    count_per_region = np.bincount(inverse_masked)
+
+                    mean_per_region = sum_per_region / count_per_region
+                    valid_per_region = count_per_region / total_per_region
+
+                    valid_regions = valid_per_region > .8
+
+                    ids = ids[valid_regions]
+                    mean_per_region = mean_per_region[valid_regions]
 
 
 def main():

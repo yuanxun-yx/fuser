@@ -126,9 +126,7 @@ def read_scan(file) -> Scan:
             raise ValueError(f"data shape {data.shape} doesn't match given img dim {img_dim}")
 
         # x, y, z for 3D slice
-        axes = list(range(len(img_dim)))
-        axes[-3:] = axes[-3:][::-1]
-        data = data.transpose(axes)
+        data = data.swapaxes(-3, -1)
 
         voxels_to_probe = read_raw(acq_metadata_group['voxelsToProbe'])
         probe_to_lab = read_raw(acq_metadata_group['probeToLab'])
