@@ -20,6 +20,44 @@ from read_scan import read_scan, read_bps
 BRAIN_ORIGIN_CCFv3_COORD_POST_INF_ML = (5600, 5500, 5700)
 
 
+def bincount_axes(x: np.ndarray, /, axis: int | tuple[int, ...], weights: np.ndarray = None) -> np.ndarray:
+    """
+    apply numpy.bincount on given axes of x
+    """
+    if weights is not None and x.shape != weights.shape:
+        raise ValueError(f'x {x.shape} and weights {weights.shape} shape do not match')
+
+    if isinstance(axis, int):
+        axis = (axis,)
+
+    # move flattened axes to the end
+    dest = tuple(range(-len(axis), 0))
+    x = np.moveaxis(x, axis, dest)
+
+    batch_shape = x.shape[:-len(axis)]
+    reduce_size = np.prod(x.shape[-len(axis):]).item()
+
+    x = x.reshape(-1, reduce_size)
+
+    k = x.max().item() + 1
+    b = x.shape[0]
+
+    offset = np.arange(b)[:, None] * k
+    x = (x + offset).ravel()
+
+    # apply same flatten to weights
+    if weights is not None:
+        weights = np.moveaxis(weights, axis, dest)
+        weights = weights.reshape(-1, reduce_size)
+        weights = weights.ravel()
+
+    counts = np.bincount(x, weights=weights, minlength=b * k)
+
+    counts = counts.reshape(*batch_shape, k)
+
+    return counts
+
+
 def find_only_file(root: Path, prefix: str, postfix: str) -> Path:
     pattern = f'{prefix}*{postfix}'
     result = list(root.glob(pattern))
@@ -61,8 +99,11 @@ def download_allen_ontology(
 
 
 def read_event_time(xlsx_path: Path):
-    SOCIAL_EVENT_NAME = 'Modified Social Event (Horizontal)'
-    NONSOCIAL_EVENT_NAME = 'Modified Non-Social Event (Horizontal)'
+    def group_tag(header: str) -> str:
+        words = [w.lower() for w in header.split()]
+        if words[0] != 'modified':
+            raise ValueError(f'"{header}" is not valid')
+        return words[1]
 
     wb = openpyxl.load_workbook(xlsx_path)
     if len(wb.sheetnames) == 1:
@@ -71,24 +112,20 @@ def read_event_time(xlsx_path: Path):
         ws = wb['Processed Events']
     if ws.max_column != 2:
         raise ValueError(f'"{xlsx_path}" has {ws.max_column} columns')
-    social_events, nonsocial_events = None, None
+    result = {}
     for i in range(2, ws.max_row + 1):
         event_type = ws.cell(row=i, column=1).value
-        if event_type not in [SOCIAL_EVENT_NAME, NONSOCIAL_EVENT_NAME]: continue
+        try:
+            tag = group_tag(event_type)
+        except ValueError:
+            continue
+        if tag in result:
+            raise ValueError(f'more than one {tag} found in "{xlsx_path}"')
         values = ws.cell(row=i, column=2).value
-        times = [int(s) for s in values.split(' ') if s]
-        if len(times) % 2 != 0:
-            logging.warning(f'number of timepoints {len(times)} is not even')
-        events = list(zip(times[::2], times[1::2]))
-        if event_type == SOCIAL_EVENT_NAME:
-            if social_events is not None:
-                raise ValueError(f'more than one social event found in "{xlsx_path}"')
-            social_events = events
-        if event_type == NONSOCIAL_EVENT_NAME:
-            if nonsocial_events is not None:
-                raise ValueError(f'more than one non-social event found in "{xlsx_path}"')
-            nonsocial_events = events
-    return social_events, nonsocial_events
+        time = [int(s) for s in values.split()]
+        time = np.array(time)
+        result[tag] = time.reshape(-1, 2)
+    return result
 
 
 def pipeline(config: dict):
@@ -146,7 +183,7 @@ def pipeline(config: dict):
                 subject = parts[0]
                 prefix = '_'.join(parts[:-3])
 
-                event_times = read_event_time(event_time_path)
+                event_time = read_event_time(event_time_path)
 
                 bps_path = find_only_file(scan_dir, prefix, '.source.bps')
                 brain_to_lab = read_bps(bps_path)
@@ -161,62 +198,60 @@ def pipeline(config: dict):
                 if n_block_repeat != 1:
                     raise ValueError(f'block repeat number is {n_block_repeat}, we only handle 1 currently')
                 data = fus_scan.data.squeeze(2)
+
                 time = fus_scan.acquisition.time.squeeze(2)
+                event_mask = {}
+                for k, v in event_time.items():
+                    event_mask[k] = ((time[..., None] >= v[:, 0]) & (time[..., None] <= v[:, 1])).any(axis=-1)
 
                 threshold = np.percentile(data, 50, axis=(2, 3, 4), keepdims=True)
                 mask = data > threshold
+                # morphology process each 3d mask
+                for i in range(data.shape[0]):
+                    for j in range(data.shape[1]):
+                        slice = mask[i, j]
+                        labels, num = label(slice)
+                        sizes = np.bincount(labels.ravel())
+                        largest_label = np.argmax(sizes[1:]) + 1
+                        body_mask = labels == largest_label
+                        # ignore scan direction because it has much smaller size
+                        for k in range(body_mask.shape[1]):
+                            slice[:, k, :] = binary_closing(binary_fill_holes(body_mask[:, k, :]))
 
                 data = np.log(data)
                 per_body_norm = np.percentile(data, 99, axis=(2, 3, 4), keepdims=True)
                 data /= per_body_norm
 
-                r = 0
+                voxels_to_annotation_index = (
+                        inv(annotation_transform) @ brain_to_annotation @ inv(brain_to_lab) @
+                        fus_scan.acquisition.probe_to_lab @ fus_scan.acquisition.voxels_to_probe
+                )
 
+                # shape: pose, x, y, z (no scan repeat because only depend on pose)
+                voxel_annotations = np.empty(data.shape[1:], dtype=annotation_data.dtype)
                 for i in range(data.shape[1]):
-                    # morphology process each 3d mask
-                    body_mask = mask[r, i]
-                    labels, num = label(body_mask)
-                    sizes = np.bincount(labels.ravel())
-                    largest_label = np.argmax(sizes[1:]) + 1
-                    body_mask = labels == largest_label
-                    # ignore scan direction because it has much smaller size
-                    for j in range(body_mask.shape[1]):
-                        body_mask[:, j, :] = binary_closing(binary_fill_holes(body_mask[:, j, :]))
-
-                    body = data[r, i]
-
-                    voxels_to_annotation_index = (
-                            inv(annotation_transform) @ brain_to_annotation @ inv(brain_to_lab) @
-                            fus_scan.acquisition.probe_to_lab[i, :, :] @ fus_scan.acquisition.voxels_to_probe
-                    )
-
-                    voxel_annotations = affine_transform(
+                    voxel_annotations[i] = affine_transform(
                         annotation_data,
-                        matrix=voxels_to_annotation_index,
-                        output_shape=body.shape,
+                        matrix=voxels_to_annotation_index[i],
+                        output_shape=data.shape[-3:],
                         order=0  # nearest neighbor
                     )
 
-                    body_f = body.ravel()
-                    annotation_f = voxel_annotations.ravel()
-                    mask_f = body_mask.ravel()
+                body_3d_axes = (-3, -2, -1)
+                # convert non-consecutive region ids to 0, 1, 2, ...
+                ids, inverse = np.unique(voxel_annotations, return_inverse=True)
+                inverse_b = np.broadcast_to(inverse, mask.shape)
+                # shape: pose, id count
+                region_voxel_count = bincount_axes(inverse, axis=body_3d_axes)
+                # shape: repeat, pose, id count
+                region_valid_voxel_count = bincount_axes(inverse_b, axis=body_3d_axes, weights=mask)
+                region_valid_sum = bincount_axes(inverse_b, axis=body_3d_axes, weights=mask * data)
 
-                    ids, inverse = np.unique(annotation_f, return_inverse=True)
-                    total_per_region = np.bincount(inverse)
-
-                    body_f = body_f[mask_f]
-                    inverse_masked = inverse[mask_f]
-
-                    sum_per_region = np.bincount(inverse_masked, weights=body_f)
-                    count_per_region = np.bincount(inverse_masked)
-
-                    mean_per_region = sum_per_region / count_per_region
-                    valid_per_region = count_per_region / total_per_region
-
-                    valid_regions = valid_per_region > .8
-
-                    ids = ids[valid_regions]
-                    mean_per_region = mean_per_region[valid_regions]
+                # shape: scan repeat, pose, id count
+                # contains nan if valid count is 0
+                region_valid_ratio = region_valid_voxel_count / region_voxel_count[None, ...]
+                valid_region_mask = region_valid_voxel_count > .8
+                region_valid_mean = region_valid_sum / region_valid_voxel_count
 
 
 def main():
