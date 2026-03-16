@@ -93,12 +93,12 @@ def download_allen_ontology(
         r.raise_for_status()
         content = json.loads(r.content)
         if not content['success']:
-            raise ValueError(f'ontology download failed')
+            raise RuntimeError(f'ontology download failed')
         with open(file_name, "w") as f:
             json.dump(content['msg'][0], f)
 
 
-def read_event_time(xlsx_path: Path):
+def read_event_time(xlsx_path: Path) -> dict[str, np.ndarray]:
     def group_tag(header: str) -> str:
         words = [w.lower() for w in header.split()]
         if words[0] != 'modified':
@@ -196,7 +196,7 @@ def pipeline(config: dict):
 
                 n_block_repeat = fus_scan.data.shape[2]
                 if n_block_repeat != 1:
-                    raise ValueError(f'block repeat number is {n_block_repeat}, we only handle 1 currently')
+                    raise NotImplementedError(f'block repeat number is {n_block_repeat}, we only handle 1 currently')
                 data = fus_scan.data.squeeze(2)
 
                 time = fus_scan.acquisition.time.squeeze(2)
@@ -251,9 +251,25 @@ def pipeline(config: dict):
 
                 # shape: scan repeat, pose, id count
                 # contains nan if valid count is 0
-                region_valid_ratio = region_valid_voxel_count / region_voxel_count[None, ...]
-                valid_region_mask = region_valid_ratio >= config['parameters']['valid_region_ratio']
                 region_valid_mean = region_valid_sum / region_valid_voxel_count
+                region_valid_ratio = region_valid_voxel_count / region_voxel_count[None, ...]
+                valid_region_mask = region_valid_ratio >= config['parameters']['valid_region_voxel_ratio']
+
+                # check if each region is stable in certain pose across scan repeats
+                region_valid_ratio_at_pose = valid_region_mask.mean(axis=0)
+                # shape: (pose, id count)
+                valid_pose_region_mask = region_valid_ratio_at_pose >= config['parameters']['valid_region_pose_ratio']
+
+                event_region_mean = {}
+                for k, v in event_mask.items():
+                    # slice belong to group & region has enough valid voxels
+                    m = v[..., None] & valid_region_mask & valid_pose_region_mask[None, ...]
+                    masked_region_mean = np.where(m, region_valid_mean, np.nan)
+                    # take mean of each pose first, then mean among poses
+                    # because the number of each pose in each group is not the same
+                    # shape: (pose, id count)
+                    mean_per_pose = np.nanmean(masked_region_mean, axis=0)
+                    event_region_mean[k] = np.nanmean(mean_per_pose, axis=0)
 
 
 def main():
