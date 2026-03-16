@@ -37,7 +37,7 @@ class Dataset:
 
         for drug_dir in self.path.iterdir():
             if not drug_dir.is_dir(): continue
-            drug = drug_dir.name
+            drug = drug_dir.name.lower()
             epochs_dir = drug_dir / 'eventTime'
             for genotype_dir in epochs_dir.iterdir():
                 if not genotype_dir.is_dir(): continue
@@ -45,10 +45,10 @@ class Dataset:
                 if not scan_dir.is_dir():
                     warnings.warn(f'scan folder "{scan_dir}" does not exist, skipping')
                     continue
-                genotype = genotype_dir.name.split('_')[2]
+                genotype = genotype_dir.name.split('_')[2].lower()
                 for epochs_path in genotype_dir.glob('[!~]*.xlsx'):
                     parts = epochs_path.stem.split('_')
-                    subject = parts[0]
+                    subject = parts[0].lower()
                     prefix = '_'.join(parts[:-3])
                     try:
                         bps_path = self._find_only_file(scan_dir, prefix, '.source.bps')

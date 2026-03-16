@@ -76,6 +76,10 @@ def process_fus(
         valid_region_pose_ratio: float,
 
 ):
+    dataset_path = Path(dataset_path)
+    annotation_path = Path(annotation_path)
+    save_path = Path(save_path)
+
     annotation_data, annotation_header = nrrd.read(annotation_path)
 
     annotation_transform = np.eye(4)
