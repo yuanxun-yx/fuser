@@ -19,6 +19,7 @@ def pipeline(config: dict):
 
     fus_region_values_path = Path(paths['fus_region_values'])
     if not fus_region_values_path.is_file():
+        print("processing fus raw data")
         process_fus(
             dataset_path=paths['dataset'],
             annotation_path=annotation_path,
@@ -28,6 +29,7 @@ def pipeline(config: dict):
             valid_region_voxel_ratio=parameters['valid_region_voxel_ratio'],
             valid_region_pose_ratio=parameters['valid_region_pose_ratio'],
         )
+        print(f'processed fus data saved to "{fus_region_values_path}"')
 
     ontology_path = Path(paths['ontology'])
     if not ontology_path.is_file():
@@ -47,13 +49,16 @@ def pipeline(config: dict):
         region = regions[r_id]['acronym'].replace('/', '')
         return f'{region}+{drug}'
 
+    plots_path = Path(paths['plots'])
+    print(f'plotting, saving to "{plots_path}"')
     plot(
         data_path=fus_region_values_path,
-        save_path=paths['plots'],
+        save_path=plots_path,
         fig_cols=('drug', 'brain_region_id'),
         x_col='epoch_condition',
         y_col='value',
         hue_col='genotype',
+        min_sample_n=parameters['min_sample_n'],
         group_to_title=get_title
     )
 

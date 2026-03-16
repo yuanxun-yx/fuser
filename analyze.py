@@ -23,6 +23,7 @@ def plot(
         x_col: str,
         y_col: str,
         hue_col: str,
+        min_sample_n: int,
         show_progress: bool = True,
         group_to_title: Callable[[tuple[Any, ...]], str] = default_title,
         format: str = 'png'
@@ -32,12 +33,15 @@ def plot(
 
     df = pl.read_parquet(data_path)
 
-    save_path.mkdir(parents=True, exist_ok=True)
-
-    x_vals = df[x_col].unique()
     hue_vals = df[hue_col].unique()
     if hue_vals.len() != 2:
         raise ValueError(f"column selected for legend in figure should have only 2 groups for hypothesis testing")
+
+    n_df = df.group_by(fig_cols + (x_col, hue_col)).agg(pl.count()).pivot(hue_col, values=pl.count().meta.output_name())
+    n_df = n_df.filter((pl.col(hue_vals[0]) >= min_sample_n) & (pl.col(hue_vals[1]) >= min_sample_n))
+    df = df.join(n_df, on=fig_cols + (x_col,), how="semi")
+
+    save_path.mkdir(parents=True, exist_ok=True)
 
     it = df.group_by(fig_cols)
     if show_progress:
@@ -72,17 +76,13 @@ def plot(
         )
 
         # significance annotation
-        pairs = [tuple([(x, h) for h in hue_vals]) for x in x_vals]
+        pairs = [tuple((x, h) for h in hue_vals) for x in fig_df[x_col].unique()]
         # statannotations only compatible with pandas (utils.get_x_values())
         plot_params['data'] = fig_df.to_pandas()
-        try:
-            annotator = Annotator(
-                pairs=pairs,
-                **plot_params
-            )
-        except ValueError as e:
-            warnings.warn(f"skipping {title}: {e}")
-            continue
+        annotator = Annotator(
+            pairs=pairs,
+            **plot_params
+        )
         annotator.configure(
             test='t-test_welch',
             text_format='star',
