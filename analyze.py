@@ -16,7 +16,7 @@ def default_title(group: tuple[Any, ...]) -> str:
 
 
 def plot(
-        data_path: str | Path,
+        df: pl.DataFrame,
         save_path: str | Path,
         *,
         fig_cols: tuple[str, ...],
@@ -28,10 +28,7 @@ def plot(
         group_to_title: Callable[[tuple[Any, ...]], str] = default_title,
         format: str = 'png'
 ):
-    data_path = Path(data_path)
     save_path = Path(save_path)
-
-    df = pl.read_parquet(data_path)
 
     hue_vals = df[hue_col].unique()
     if hue_vals.len() != 2:

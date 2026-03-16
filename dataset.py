@@ -28,7 +28,7 @@ class Session:
 
 
 class Dataset:
-    CONDITION_NAMES = ('drug', 'genotype')
+    CONDITION_NAMES = ('drug',)
 
     def __init__(self, path: str | Path, show_progress: bool = True):
         self.path = Path(path)
@@ -45,7 +45,6 @@ class Dataset:
                 if not scan_dir.is_dir():
                     warnings.warn(f'scan folder "{scan_dir}" does not exist, skipping')
                     continue
-                genotype = genotype_dir.name.split('_')[2].lower()
                 for epochs_path in genotype_dir.glob('[!~]*.xlsx'):
                     parts = epochs_path.stem.split('_')
                     subject = parts[0].lower()
@@ -62,7 +61,7 @@ class Dataset:
                             bps_path=bps_path,
                             epochs_path=epochs_path,
                             subject=subject,
-                            conditions=(drug, genotype),
+                            conditions=(drug,),
                         )
                     )
 

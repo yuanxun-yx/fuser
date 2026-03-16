@@ -3,6 +3,7 @@ import tomllib
 import argparse
 import json
 from typing import Any
+import polars as pl
 
 from download import download_annotation_volume, download_allen_ontology
 from process import process_fus
@@ -50,10 +51,15 @@ def pipeline(config: dict):
         region = regions[r_id]['acronym'].replace('/', '')
         return f'{region}+{drug}'
 
+    df = pl.read_parquet(fus_region_values_path)
+
+    genotype = pl.read_csv(paths['genotype'])
+    df = df.join(genotype, on='subject', how='left')
+
     plots_path = Path(paths['plots'])
     print(f'plotting, saving to "{plots_path}"')
     plot(
-        data_path=fus_region_values_path,
+        df=df,
         save_path=plots_path,
         fig_cols=('drug', 'brain_region_id'),
         x_col='epoch_condition',

@@ -4,6 +4,7 @@ annotation = './annotation.nrrd'
 ontology = './ontology.json'
 fus_region_values = './fus_region_values.parquet'
 plots = './plots'
+genotype = './genotype.csv'
 
 [parameters]
 voxel_percentile_thresh = 50
