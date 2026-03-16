@@ -88,6 +88,7 @@ def process_fus(
 
     dfs = []
     dataset = Dataset(dataset_path)
+    # vectorize this in the future, size of session is ~200MB
     for session in dataset:
         fus_scan = session.fus_scan
 

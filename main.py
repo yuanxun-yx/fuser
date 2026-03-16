@@ -10,20 +10,26 @@ from analyze import plot
 
 
 def pipeline(config: dict):
-    annotation_path = Path(config['paths']['annotation'])
+    paths = config['paths']
+    parameters = config['parameters']
+
+    annotation_path = Path(paths['annotation'])
     if not annotation_path.is_file():
         download_annotation_volume(annotation_path)
 
-    fus_region_values_path = Path(config['paths']['fus_region_values'])
+    fus_region_values_path = Path(paths['fus_region_values'])
     if not fus_region_values_path.is_file():
         process_fus(
-            dataset_path=config['paths']['dataset'],
+            dataset_path=paths['dataset'],
             annotation_path=annotation_path,
             save_path=fus_region_values_path,
-            **config['parameters']
+            voxel_percentile_thresh=parameters['voxel_percentile_thresh'],
+            voxel_norm_percentile=parameters['voxel_norm_percentile'],
+            valid_region_voxel_ratio=parameters['valid_region_voxel_ratio'],
+            valid_region_pose_ratio=parameters['valid_region_pose_ratio'],
         )
 
-    ontology_path = Path(config['paths']['ontology'])
+    ontology_path = Path(paths['ontology'])
     if not ontology_path.is_file():
         download_allen_ontology(ontology_path, 1)  # adult mouse
 
@@ -43,7 +49,7 @@ def pipeline(config: dict):
 
     plot(
         data_path=fus_region_values_path,
-        save_path=config['paths']['plots'],
+        save_path=paths['plots'],
         fig_cols=('drug', 'brain_region_id'),
         x_col='epoch_condition',
         y_col='value',
