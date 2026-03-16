@@ -1,22 +1,15 @@
 from pathlib import Path
 import tomllib
 import argparse
-from tqdm import tqdm
-import json
-import logging
-from typing import Literal
-import requests
 import numpy as np
 from numpy.linalg import inv
-import openpyxl
 import warnings
-import matplotlib.pyplot as plt
-from skimage.segmentation import find_boundaries
 import nrrd
 from scipy.ndimage import affine_transform, label, binary_fill_holes, binary_closing
 import polars as pl
 
-from read_scan import read_scan, read_bps
+from dataset import Dataset
+from download import download_annotation_volume
 
 # in um
 BRAIN_ORIGIN_CCFv3_COORD_POST_INF_ML = (5600, 5500, 5700)
@@ -60,87 +53,7 @@ def bincount_axes(x: np.ndarray, /, axis: int | tuple[int, ...], weights: np.nda
     return counts
 
 
-def find_only_file(root: Path, prefix: str, postfix: str) -> Path:
-    pattern = f'{prefix}*{postfix}'
-    result = list(root.glob(pattern))
-
-    if len(result) == 0:
-        raise ValueError(f'"{root}" does not contain {pattern}')
-    if len(result) > 1:
-        logging.warning(f'"{root}" contains {len(result)} of {pattern}, first one used')
-
-    return result[0]
-
-
-def download_annotation_volume(
-        file_name: Path,
-        ccf_version: Literal[2015, 2016, 2017, 2022] = 2022,
-        resolution: Literal[10, 25, 50, 100] = 10
-):
-    url = (f'https://download.alleninstitute.org/informatics-archive/current-release/'
-           f'mouse_ccf/annotation/ccf_{ccf_version}/annotation_{resolution}.nrrd')
-    with requests.get(url, stream=True) as r:
-        r.raise_for_status()
-        file_name.write_bytes(r.content)
-
-
-def download_allen_ontology(
-        file_name: Path,
-        structure_id: int
-):
-    url = f'https://api.brain-map.org/api/v2/structure_graph_download/{structure_id}.json'
-    with requests.get(url) as r:
-        r.raise_for_status()
-        content = json.loads(r.content)
-        if not content['success']:
-            raise RuntimeError(f'ontology download failed')
-        with open(file_name, "w") as f:
-            json.dump(content['msg'][0], f)
-
-
-def read_event_time(xlsx_path: Path) -> dict[str, np.ndarray]:
-    def group_tag(header: str) -> str:
-        words = [w.lower() for w in header.split()]
-        if words[0] != 'modified':
-            raise ValueError(f'"{header}" is not valid')
-        return words[1]
-
-    wb = openpyxl.load_workbook(xlsx_path)
-    if len(wb.sheetnames) == 1:
-        ws = wb.worksheets[0]
-    else:
-        ws = wb['Processed Events']
-    if ws.max_column != 2:
-        raise ValueError(f'"{xlsx_path}" has {ws.max_column} columns')
-    result = {}
-    for i in range(2, ws.max_row + 1):
-        event_type = ws.cell(row=i, column=1).value
-        try:
-            tag = group_tag(event_type)
-        except ValueError:
-            continue
-        if tag in result:
-            raise ValueError(f'more than one {tag} found in "{xlsx_path}"')
-        values = ws.cell(row=i, column=2).value
-        time = [int(s) for s in values.split()]
-        time = np.array(time)
-        result[tag] = time.reshape(-1, 2)
-    return result
-
-
 def pipeline(config: dict):
-    ontology_path = Path(config['paths']['ontology'])
-    if not ontology_path.is_file():
-        download_allen_ontology(ontology_path, 1)  # adult mouse
-    with open(ontology_path, 'r') as f:
-        ontology = json.load(f)
-    regions = {}
-    queue = [ontology]
-    while len(queue) > 0:
-        item = queue.pop(0)
-        regions[item['id']] = item  # reference in tree
-        queue += item['children']
-
     annotation_path = Path(config['paths']['annotation'])
     if not annotation_path.is_file():
         download_annotation_volume(annotation_path)
@@ -166,124 +79,102 @@ def pipeline(config: dict):
     brain_to_annotation[:3, :3] *= 4e3
 
     dfs = []
-    data_root = Path(config['paths']['data_root']).expanduser().resolve()
-    for timepoint_dir in data_root.iterdir():
-        if not timepoint_dir.is_dir(): continue
-        timepoint = timepoint_dir.name
-        event_time_dir = timepoint_dir / 'eventTime'
-        for group_dir in event_time_dir.iterdir():
-            if not group_dir.is_dir(): continue
-            scan_dir = timepoint_dir / 'Scan' / group_dir.name.replace('eventTime_', 'Scan_')
-            if not scan_dir.is_dir():
-                raise ValueError(f'scan dir does not exist: "{scan_dir}"')
-            group = group_dir.name.split('_')[2]
-            iterator = tqdm(list(group_dir.glob('[!~]*.xlsx')), desc=f"{timepoint},{group}")
-            for event_time_path in iterator:
-                # each trial
-                parts = event_time_path.stem.split('_')
-                subject = parts[0]
-                prefix = '_'.join(parts[:-3])
+    dataset = Dataset(config['paths']['dataset'])
+    for session in dataset:
 
-                event_time = read_event_time(event_time_path)
+        fus_scan = session.fus_scan
 
-                bps_path = find_only_file(scan_dir, prefix, '.source.bps')
-                brain_to_lab = read_bps(bps_path)
+        n_block_repeat = fus_scan.data.shape[2]
+        if n_block_repeat != 1:
+            raise NotImplementedError(f'block repeat number is {n_block_repeat}, we only handle 1 currently')
+        data = fus_scan.data.squeeze(2)
 
-                fus_scan_path = find_only_file(scan_dir, prefix, 'fus3D.source.scan')
-                fus_scan = read_scan(fus_scan_path)
+        time = fus_scan.acquisition.time.squeeze(2)
+        event_mask = {}
+        for k, v in session.epochs.items():
+            event_mask[k] = ((time[..., None] >= v[:, 0]) & (time[..., None] <= v[:, 1])).any(axis=-1)
 
-                n_block_repeat = fus_scan.data.shape[2]
-                if n_block_repeat != 1:
-                    raise NotImplementedError(f'block repeat number is {n_block_repeat}, we only handle 1 currently')
-                data = fus_scan.data.squeeze(2)
+        threshold = np.percentile(data, config['parameters']['voxel_percentile_thresh'], axis=(2, 3, 4),
+                                  keepdims=True)
+        mask = data > threshold
+        # morphology process each 3d mask
+        for i in range(data.shape[0]):
+            for j in range(data.shape[1]):
+                s = mask[i, j]
+                labels, num = label(s)
+                sizes = np.bincount(labels.ravel())
+                largest_label = np.argmax(sizes[1:]) + 1
+                body_mask = labels == largest_label
+                # ignore scan direction because it has much smaller size
+                for k in range(body_mask.shape[1]):
+                    s[:, k, :] = binary_closing(binary_fill_holes(body_mask[:, k, :]))
 
-                time = fus_scan.acquisition.time.squeeze(2)
-                event_mask = {}
-                for k, v in event_time.items():
-                    event_mask[k] = ((time[..., None] >= v[:, 0]) & (time[..., None] <= v[:, 1])).any(axis=-1)
+        data = np.log(data)
+        per_body_norm = np.percentile(data, config['parameters']['voxel_norm_percentile'], axis=(2, 3, 4),
+                                      keepdims=True)
+        data /= per_body_norm
 
-                threshold = np.percentile(data, config['parameters']['voxel_percentile_thresh'], axis=(2, 3, 4),
-                                          keepdims=True)
-                mask = data > threshold
-                # morphology process each 3d mask
-                for i in range(data.shape[0]):
-                    for j in range(data.shape[1]):
-                        slice = mask[i, j]
-                        labels, num = label(slice)
-                        sizes = np.bincount(labels.ravel())
-                        largest_label = np.argmax(sizes[1:]) + 1
-                        body_mask = labels == largest_label
-                        # ignore scan direction because it has much smaller size
-                        for k in range(body_mask.shape[1]):
-                            slice[:, k, :] = binary_closing(binary_fill_holes(body_mask[:, k, :]))
+        voxels_to_annotation_index = (
+                inv(annotation_transform) @ brain_to_annotation @ inv(session.brain_to_lab) @
+                fus_scan.acquisition.probe_to_lab @ fus_scan.acquisition.voxels_to_probe
+        )
 
-                data = np.log(data)
-                per_body_norm = np.percentile(data, config['parameters']['voxel_norm_percentile'], axis=(2, 3, 4),
-                                              keepdims=True)
-                data /= per_body_norm
+        # shape: pose, x, y, z (no scan repeat because only depend on pose)
+        voxel_annotations = np.empty(data.shape[1:], dtype=annotation_data.dtype)
+        for i in range(data.shape[1]):
+            voxel_annotations[i] = affine_transform(
+                annotation_data,
+                matrix=voxels_to_annotation_index[i],
+                output_shape=data.shape[-3:],
+                order=0  # nearest neighbor
+            )
 
-                voxels_to_annotation_index = (
-                        inv(annotation_transform) @ brain_to_annotation @ inv(brain_to_lab) @
-                        fus_scan.acquisition.probe_to_lab @ fus_scan.acquisition.voxels_to_probe
-                )
+        body_3d_axes = (-3, -2, -1)
+        # convert non-consecutive region ids to 0, 1, 2, ...
+        ids, inverse = np.unique(voxel_annotations, return_inverse=True)
+        inverse_b = np.broadcast_to(inverse, mask.shape)
+        # shape: pose, id count
+        region_voxel_count = bincount_axes(inverse, axis=body_3d_axes)
+        # shape: repeat, pose, id count
+        region_valid_voxel_count = bincount_axes(inverse_b, axis=body_3d_axes, weights=mask)
+        region_valid_sum = bincount_axes(inverse_b, axis=body_3d_axes, weights=mask * data)
 
-                # shape: pose, x, y, z (no scan repeat because only depend on pose)
-                voxel_annotations = np.empty(data.shape[1:], dtype=annotation_data.dtype)
-                for i in range(data.shape[1]):
-                    voxel_annotations[i] = affine_transform(
-                        annotation_data,
-                        matrix=voxels_to_annotation_index[i],
-                        output_shape=data.shape[-3:],
-                        order=0  # nearest neighbor
-                    )
+        # shape: scan repeat, pose, id count
+        # contains nan if valid count is 0
+        with np.errstate(invalid='ignore'):
+            region_valid_mean = region_valid_sum / region_valid_voxel_count
+            region_valid_ratio = region_valid_voxel_count / region_voxel_count[None, ...]
+        valid_region_mask = region_valid_ratio >= config['parameters']['valid_region_voxel_ratio']
 
-                body_3d_axes = (-3, -2, -1)
-                # convert non-consecutive region ids to 0, 1, 2, ...
-                ids, inverse = np.unique(voxel_annotations, return_inverse=True)
-                inverse_b = np.broadcast_to(inverse, mask.shape)
-                # shape: pose, id count
-                region_voxel_count = bincount_axes(inverse, axis=body_3d_axes)
-                # shape: repeat, pose, id count
-                region_valid_voxel_count = bincount_axes(inverse_b, axis=body_3d_axes, weights=mask)
-                region_valid_sum = bincount_axes(inverse_b, axis=body_3d_axes, weights=mask * data)
+        # check if each region is stable in certain pose across scan repeats
+        region_valid_ratio_at_pose = valid_region_mask.mean(axis=0)
+        # shape: (pose, id count)
+        valid_pose_region_mask = region_valid_ratio_at_pose >= config['parameters']['valid_region_pose_ratio']
 
-                # shape: scan repeat, pose, id count
-                # contains nan if valid count is 0
-                with np.errstate(invalid='ignore'):
-                    region_valid_mean = region_valid_sum / region_valid_voxel_count
-                    region_valid_ratio = region_valid_voxel_count / region_voxel_count[None, ...]
-                valid_region_mask = region_valid_ratio >= config['parameters']['valid_region_voxel_ratio']
+        for k, v in event_mask.items():
+            # slice belong to group & region has enough valid voxels
+            m = v[..., None] & valid_region_mask & valid_pose_region_mask[None, ...]
+            masked_region_mean = np.where(m, region_valid_mean, np.nan)
+            # take mean of each pose first, then mean among poses
+            # because the number of each pose in each group is not the same
+            # shape: (pose, id count)
+            with warnings.catch_warnings():
+                warnings.filterwarnings('ignore', message='Mean of empty slice')
+                mean_per_pose = np.nanmean(masked_region_mean, axis=0)
+                event_region_mean = np.nanmean(mean_per_pose, axis=0)
 
-                # check if each region is stable in certain pose across scan repeats
-                region_valid_ratio_at_pose = valid_region_mask.mean(axis=0)
-                # shape: (pose, id count)
-                valid_pose_region_mask = region_valid_ratio_at_pose >= config['parameters']['valid_region_pose_ratio']
-
-                for k, v in event_mask.items():
-                    # slice belong to group & region has enough valid voxels
-                    m = v[..., None] & valid_region_mask & valid_pose_region_mask[None, ...]
-                    masked_region_mean = np.where(m, region_valid_mean, np.nan)
-                    # take mean of each pose first, then mean among poses
-                    # because the number of each pose in each group is not the same
-                    # shape: (pose, id count)
-                    with warnings.catch_warnings():
-                        warnings.filterwarnings("ignore", message="Mean of empty slice")
-                        mean_per_pose = np.nanmean(masked_region_mean, axis=0)
-                        event_region_mean = np.nanmean(mean_per_pose, axis=0)
-
-                    nan_mask = ~np.isnan(event_region_mean)
-                    n = nan_mask.sum()
-                    dfs.append(pl.DataFrame({
-                        "subject": [subject] * n,
-                        "group": [group] * n,
-                        "condition": [timepoint] * n,
-                        "event": [k] * n,
-                        "brain_region": ids[nan_mask],
-                        "value": event_region_mean[nan_mask],
-                    }))
+            nan_mask = ~np.isnan(event_region_mean)
+            n = nan_mask.sum()
+            dfs.append(pl.DataFrame({
+                'subject': [session.subject] * n,
+                **{f'session_condition_{i}': [c] * n for i, c in enumerate(session.conditions)},
+                'epoch_condition': [k] * n,
+                'brain_region_id': ids[nan_mask],
+                'value': event_region_mean[nan_mask],
+            }))
 
     df = pl.concat(dfs)
-    df.write_parquet("result.parquet")
+    df.write_parquet(config['paths']['fus_region_values'])
 
 
 def main():
