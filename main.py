@@ -1,180 +1,24 @@
 from pathlib import Path
 import tomllib
 import argparse
-import numpy as np
-from numpy.linalg import inv
-import warnings
-import nrrd
-from scipy.ndimage import affine_transform, label, binary_fill_holes, binary_closing
-import polars as pl
 
-from dataset import Dataset
 from download import download_annotation_volume
-
-# in um
-BRAIN_ORIGIN_CCFv3_COORD_POST_INF_ML = (5600, 5500, 5700)
-
-
-def bincount_axes(x: np.ndarray, /, axis: int | tuple[int, ...], weights: np.ndarray = None) -> np.ndarray:
-    """
-    apply numpy.bincount on given axes of x
-    """
-    if weights is not None and x.shape != weights.shape:
-        raise ValueError(f'x {x.shape} and weights {weights.shape} shape do not match')
-
-    if isinstance(axis, int):
-        axis = (axis,)
-
-    # move flattened axes to the end
-    dest = tuple(range(-len(axis), 0))
-    x = np.moveaxis(x, axis, dest)
-
-    batch_shape = x.shape[:-len(axis)]
-    reduce_size = np.prod(x.shape[-len(axis):]).item()
-
-    x = x.reshape(-1, reduce_size)
-
-    k = x.max().item() + 1
-    b = x.shape[0]
-
-    offset = np.arange(b)[:, None] * k
-    x = (x + offset).ravel()
-
-    # apply same flatten to weights
-    if weights is not None:
-        weights = np.moveaxis(weights, axis, dest)
-        weights = weights.reshape(-1, reduce_size)
-        weights = weights.ravel()
-
-    counts = np.bincount(x, weights=weights, minlength=b * k)
-
-    counts = counts.reshape(*batch_shape, k)
-
-    return counts
+from process import process_fus
 
 
 def pipeline(config: dict):
     annotation_path = Path(config['paths']['annotation'])
     if not annotation_path.is_file():
         download_annotation_volume(annotation_path)
-    annotation_data, annotation_header = nrrd.read(annotation_path)
 
-    annotation_transform = np.eye(4)
-    annotation_transform[:3, :3] = annotation_header['space directions']
-    annotation_transform[:3, 3] = annotation_header['space origin']
-
-    # Iconeous "brain" coordinate is stereotaxic
-    # direction: left, anterior, superior (dorsal)
-    # origin: approx 4mm below Bregma
-    # CCFv3 axis order: posterior, inferior, right
-    # 'space' in header is incorrect
-    # source: https://brain-map.org/support/documentation/api-allen-brain-connectivity-atlas
-    brain_to_annotation = np.zeros((4, 4))
-    brain_to_annotation[3, 3] = 1
-    brain_to_annotation[0, 1] = -1
-    brain_to_annotation[1, 2] = -1
-    brain_to_annotation[2, 0] = -1
-    brain_to_annotation[:3, 3] = BRAIN_ORIGIN_CCFv3_COORD_POST_INF_ML
-    # magic number from Iconeous: 4mm (4000 um)
-    brain_to_annotation[:3, :3] *= 4e3
-
-    dfs = []
-    dataset = Dataset(config['paths']['dataset'])
-    for session in dataset:
-
-        fus_scan = session.fus_scan
-
-        n_block_repeat = fus_scan.data.shape[2]
-        if n_block_repeat != 1:
-            raise NotImplementedError(f'block repeat number is {n_block_repeat}, we only handle 1 currently')
-        data = fus_scan.data.squeeze(2)
-
-        time = fus_scan.acquisition.time.squeeze(2)
-        event_mask = {}
-        for k, v in session.epochs.items():
-            event_mask[k] = ((time[..., None] >= v[:, 0]) & (time[..., None] <= v[:, 1])).any(axis=-1)
-
-        threshold = np.percentile(data, config['parameters']['voxel_percentile_thresh'], axis=(2, 3, 4),
-                                  keepdims=True)
-        mask = data > threshold
-        # morphology process each 3d mask
-        for i in range(data.shape[0]):
-            for j in range(data.shape[1]):
-                s = mask[i, j]
-                labels, num = label(s)
-                sizes = np.bincount(labels.ravel())
-                largest_label = np.argmax(sizes[1:]) + 1
-                body_mask = labels == largest_label
-                # ignore scan direction because it has much smaller size
-                for k in range(body_mask.shape[1]):
-                    s[:, k, :] = binary_closing(binary_fill_holes(body_mask[:, k, :]))
-
-        data = np.log(data)
-        per_body_norm = np.percentile(data, config['parameters']['voxel_norm_percentile'], axis=(2, 3, 4),
-                                      keepdims=True)
-        data /= per_body_norm
-
-        voxels_to_annotation_index = (
-                inv(annotation_transform) @ brain_to_annotation @ inv(session.brain_to_lab) @
-                fus_scan.acquisition.probe_to_lab @ fus_scan.acquisition.voxels_to_probe
+    fus_region_values_path = Path(config['paths']['fus_region_values'])
+    if not fus_region_values_path.is_file():
+        process_fus(
+            dataset_path=config['paths']['dataset'],
+            annotation_path=annotation_path,
+            save_path=fus_region_values_path,
+            **config['parameters']
         )
-
-        # shape: pose, x, y, z (no scan repeat because only depend on pose)
-        voxel_annotations = np.empty(data.shape[1:], dtype=annotation_data.dtype)
-        for i in range(data.shape[1]):
-            voxel_annotations[i] = affine_transform(
-                annotation_data,
-                matrix=voxels_to_annotation_index[i],
-                output_shape=data.shape[-3:],
-                order=0  # nearest neighbor
-            )
-
-        body_3d_axes = (-3, -2, -1)
-        # convert non-consecutive region ids to 0, 1, 2, ...
-        ids, inverse = np.unique(voxel_annotations, return_inverse=True)
-        inverse_b = np.broadcast_to(inverse, mask.shape)
-        # shape: pose, id count
-        region_voxel_count = bincount_axes(inverse, axis=body_3d_axes)
-        # shape: repeat, pose, id count
-        region_valid_voxel_count = bincount_axes(inverse_b, axis=body_3d_axes, weights=mask)
-        region_valid_sum = bincount_axes(inverse_b, axis=body_3d_axes, weights=mask * data)
-
-        # shape: scan repeat, pose, id count
-        # contains nan if valid count is 0
-        with np.errstate(invalid='ignore'):
-            region_valid_mean = region_valid_sum / region_valid_voxel_count
-            region_valid_ratio = region_valid_voxel_count / region_voxel_count[None, ...]
-        valid_region_mask = region_valid_ratio >= config['parameters']['valid_region_voxel_ratio']
-
-        # check if each region is stable in certain pose across scan repeats
-        region_valid_ratio_at_pose = valid_region_mask.mean(axis=0)
-        # shape: (pose, id count)
-        valid_pose_region_mask = region_valid_ratio_at_pose >= config['parameters']['valid_region_pose_ratio']
-
-        for k, v in event_mask.items():
-            # slice belong to group & region has enough valid voxels
-            m = v[..., None] & valid_region_mask & valid_pose_region_mask[None, ...]
-            masked_region_mean = np.where(m, region_valid_mean, np.nan)
-            # take mean of each pose first, then mean among poses
-            # because the number of each pose in each group is not the same
-            # shape: (pose, id count)
-            with warnings.catch_warnings():
-                warnings.filterwarnings('ignore', message='Mean of empty slice')
-                mean_per_pose = np.nanmean(masked_region_mean, axis=0)
-                event_region_mean = np.nanmean(mean_per_pose, axis=0)
-
-            nan_mask = ~np.isnan(event_region_mean)
-            n = nan_mask.sum()
-            dfs.append(pl.DataFrame({
-                'subject': [session.subject] * n,
-                **{f'session_condition_{i}': [c] * n for i, c in enumerate(session.conditions)},
-                'epoch_condition': [k] * n,
-                'brain_region_id': ids[nan_mask],
-                'value': event_region_mean[nan_mask],
-            }))
-
-    df = pl.concat(dfs)
-    df.write_parquet(config['paths']['fus_region_values'])
 
 
 def main():

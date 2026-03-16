@@ -28,6 +28,8 @@ class Session:
 
 
 class Dataset:
+    CONDITION_NAMES = ('drug', 'genotype')
+
     def __init__(self, path: str | Path, show_progress: bool = True):
         self.path = Path(path)
         self.show_progress = show_progress
