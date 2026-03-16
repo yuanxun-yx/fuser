@@ -47,7 +47,7 @@ def plot(
     for fig_group, fig_df in it:
         title = group_to_title(fig_group)
 
-        _, ax = plt.subplots()
+        fig, ax = plt.subplots()
 
         plot_params = dict(
             data=fig_df,
@@ -89,5 +89,5 @@ def plot(
         annotator.apply_and_annotate()
 
         ax.set(title=title, xlabel=None, ylabel=None)
-        plt.savefig((save_path / title).with_suffix(f'.{format}'))
-        plt.close()
+        fig.savefig((save_path / title).with_suffix(f'.{format}'))
+        plt.close(fig)
