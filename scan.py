@@ -88,7 +88,7 @@ def read_metadata(f: h5py.File) -> Metadata:
         type=read_str(scan_metadata_group['Type']),
         comment=read_str(scan_metadata_group['Comment']),
         machine_sn=read_str(scan_metadata_group['Machine_SN']),
-        neuroscan_version=neuroscan_version
+        neuroscan_version=neuroscan_version,
     )
 
 
@@ -102,13 +102,11 @@ def read_scan(file) -> Scan:
 
         acquisition_mode = read_str(acq_metadata_group['acquisitionMode'])
         if acquisition_mode not in ['3Dscan', '4Dscan']:
-            raise ValueError(f"acquisition mode {acquisition_mode} is not supported")
+            raise ValueError(f"acquisition mode {acquisition_mode} is not valid")
 
         robot_type = read_str(acq_metadata_group['robotType'])
 
         dim_7_key = read_str(acq_metadata_group['key7'])
-        if dim_7_key != 'none':
-            raise NotImplementedError(f"dimension 7 {dim_7_key} is not supported")
 
         img_dim_group = acq_metadata_group['imgDim']
         dim_7 = read_int(img_dim_group['dim7'])
@@ -119,8 +117,8 @@ def read_scan(file) -> Scan:
         size_y = read_int(img_dim_group['sizeY'])
         size_x = read_int(img_dim_group['sizeX'])
 
-        if dim_7 != 1:
-            raise ValueError(f"dimension 7 has size {dim_7}, should be 1")
+        if dim_7_key != 'none' or dim_7 != 1:
+            raise NotImplementedError(f"dimension 7 {dim_7_key} is not supported yet")
         img_dim = (n_scan_repeat, n_pose, n_block_repeat, size_z, size_y, size_x)
         if acquisition_mode == '3Dscan':
             img_dim = img_dim[1:]
