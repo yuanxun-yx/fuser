@@ -2,3 +2,8 @@
 data_root = './data'
 annotation = './annotation.nrrd'
 ontology = './ontology.json'
+
+[parameters]
+voxel_percentile_thresh = 50
+voxel_norm_percentile = 99
+valid_region_ratio = 0.8

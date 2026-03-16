@@ -204,7 +204,8 @@ def pipeline(config: dict):
                 for k, v in event_time.items():
                     event_mask[k] = ((time[..., None] >= v[:, 0]) & (time[..., None] <= v[:, 1])).any(axis=-1)
 
-                threshold = np.percentile(data, 50, axis=(2, 3, 4), keepdims=True)
+                threshold = np.percentile(data, config['parameters']['voxel_percentile_thresh'], axis=(2, 3, 4),
+                                          keepdims=True)
                 mask = data > threshold
                 # morphology process each 3d mask
                 for i in range(data.shape[0]):
@@ -219,7 +220,8 @@ def pipeline(config: dict):
                             slice[:, k, :] = binary_closing(binary_fill_holes(body_mask[:, k, :]))
 
                 data = np.log(data)
-                per_body_norm = np.percentile(data, 99, axis=(2, 3, 4), keepdims=True)
+                per_body_norm = np.percentile(data, config['parameters']['voxel_norm_percentile'], axis=(2, 3, 4),
+                                              keepdims=True)
                 data /= per_body_norm
 
                 voxels_to_annotation_index = (
@@ -250,7 +252,7 @@ def pipeline(config: dict):
                 # shape: scan repeat, pose, id count
                 # contains nan if valid count is 0
                 region_valid_ratio = region_valid_voxel_count / region_voxel_count[None, ...]
-                valid_region_mask = region_valid_voxel_count > .8
+                valid_region_mask = region_valid_ratio >= config['parameters']['valid_region_ratio']
                 region_valid_mean = region_valid_sum / region_valid_voxel_count
 
 
