@@ -28,6 +28,7 @@ def pipeline(config: dict):
             voxel_norm_percentile=parameters['voxel_norm_percentile'],
             valid_region_voxel_ratio=parameters['valid_region_voxel_ratio'],
             valid_region_pose_ratio=parameters['valid_region_pose_ratio'],
+            fus_delay_s=parameters['fus_delay_s'],
         )
         print(f'processed fus data saved to "{fus_region_values_path}"')
 
@@ -59,7 +60,7 @@ def pipeline(config: dict):
         y_col='value',
         hue_col='genotype',
         min_sample_n=parameters['min_sample_n'],
-        group_to_title=get_title
+        group_to_title=get_title,
     )
 
 

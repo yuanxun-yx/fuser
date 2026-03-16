@@ -11,3 +11,4 @@ voxel_norm_percentile = 99
 valid_region_voxel_ratio = 0.8
 valid_region_pose_ratio = 0.8
 min_sample_n = 5
+fus_delay_s = 2.0

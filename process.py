@@ -74,7 +74,7 @@ def process_fus(
         voxel_norm_percentile: float,
         valid_region_voxel_ratio: float,
         valid_region_pose_ratio: float,
-
+        fus_delay_s: float,
 ):
     dataset_path = Path(dataset_path)
     annotation_path = Path(annotation_path)
@@ -98,6 +98,7 @@ def process_fus(
         data = fus_scan.data.squeeze(2)
 
         time = fus_scan.acquisition.time.squeeze(2)
+        time += fus_delay_s
         event_mask = {}
         for k, v in session.epochs.items():
             event_mask[k] = ((time[..., None] >= v[:, 0]) & (time[..., None] <= v[:, 1])).any(axis=-1)
