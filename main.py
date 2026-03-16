@@ -9,10 +9,12 @@ import requests
 import numpy as np
 from numpy.linalg import inv
 import openpyxl
+import warnings
 import matplotlib.pyplot as plt
 from skimage.segmentation import find_boundaries
 import nrrd
 from scipy.ndimage import affine_transform, label, binary_fill_holes, binary_closing
+import polars as pl
 
 from read_scan import read_scan, read_bps
 
@@ -79,9 +81,7 @@ def download_annotation_volume(
            f'mouse_ccf/annotation/ccf_{ccf_version}/annotation_{resolution}.nrrd')
     with requests.get(url, stream=True) as r:
         r.raise_for_status()
-        with open(file_name, "wb") as f:
-            for chunk in r.iter_content():
-                f.write(chunk)
+        file_name.write_bytes(r.content)
 
 
 def download_allen_ontology(
@@ -165,6 +165,7 @@ def pipeline(config: dict):
     # magic number from Iconeous: 4mm (4000 um)
     brain_to_annotation[:3, :3] *= 4e3
 
+    dfs = []
     data_root = Path(config['paths']['data_root']).expanduser().resolve()
     for timepoint_dir in data_root.iterdir():
         if not timepoint_dir.is_dir(): continue
@@ -176,8 +177,8 @@ def pipeline(config: dict):
             if not scan_dir.is_dir():
                 raise ValueError(f'scan dir does not exist: "{scan_dir}"')
             group = group_dir.name.split('_')[2]
-            # tqdm(list(group_dir.glob('*.xlsx')), desc=f"{timepoint},{group}")
-            for event_time_path in group_dir.glob('[!~]*.xlsx'):
+            iterator = tqdm(list(group_dir.glob('[!~]*.xlsx')), desc=f"{timepoint},{group}")
+            for event_time_path in iterator:
                 # each trial
                 parts = event_time_path.stem.split('_')
                 subject = parts[0]
@@ -187,9 +188,6 @@ def pipeline(config: dict):
 
                 bps_path = find_only_file(scan_dir, prefix, '.source.bps')
                 brain_to_lab = read_bps(bps_path)
-
-                angio_scan_path = find_only_file(scan_dir, prefix, 'angio3D.source.scan')
-                angio_scan = read_scan(angio_scan_path)
 
                 fus_scan_path = find_only_file(scan_dir, prefix, 'fus3D.source.scan')
                 fus_scan = read_scan(fus_scan_path)
@@ -251,8 +249,9 @@ def pipeline(config: dict):
 
                 # shape: scan repeat, pose, id count
                 # contains nan if valid count is 0
-                region_valid_mean = region_valid_sum / region_valid_voxel_count
-                region_valid_ratio = region_valid_voxel_count / region_voxel_count[None, ...]
+                with np.errstate(invalid='ignore'):
+                    region_valid_mean = region_valid_sum / region_valid_voxel_count
+                    region_valid_ratio = region_valid_voxel_count / region_voxel_count[None, ...]
                 valid_region_mask = region_valid_ratio >= config['parameters']['valid_region_voxel_ratio']
 
                 # check if each region is stable in certain pose across scan repeats
@@ -260,7 +259,6 @@ def pipeline(config: dict):
                 # shape: (pose, id count)
                 valid_pose_region_mask = region_valid_ratio_at_pose >= config['parameters']['valid_region_pose_ratio']
 
-                event_region_mean = {}
                 for k, v in event_mask.items():
                     # slice belong to group & region has enough valid voxels
                     m = v[..., None] & valid_region_mask & valid_pose_region_mask[None, ...]
@@ -268,8 +266,24 @@ def pipeline(config: dict):
                     # take mean of each pose first, then mean among poses
                     # because the number of each pose in each group is not the same
                     # shape: (pose, id count)
-                    mean_per_pose = np.nanmean(masked_region_mean, axis=0)
-                    event_region_mean[k] = np.nanmean(mean_per_pose, axis=0)
+                    with warnings.catch_warnings():
+                        warnings.filterwarnings("ignore", message="Mean of empty slice")
+                        mean_per_pose = np.nanmean(masked_region_mean, axis=0)
+                        event_region_mean = np.nanmean(mean_per_pose, axis=0)
+
+                    nan_mask = ~np.isnan(event_region_mean)
+                    n = nan_mask.sum()
+                    dfs.append(pl.DataFrame({
+                        "subject": [subject] * n,
+                        "group": [group] * n,
+                        "condition": [timepoint] * n,
+                        "event": [k] * n,
+                        "brain_region": ids[nan_mask],
+                        "value": event_region_mean[nan_mask],
+                    }))
+
+    df = pl.concat(dfs)
+    df.write_parquet("result.parquet")
 
 
 def main():
