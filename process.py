@@ -135,6 +135,8 @@ def process_fus(
         body_3d_axes = (-3, -2, -1)
         # convert non-consecutive region ids to 0, 1, 2, ...
         ids, inverse = np.unique(voxel_annotations, return_inverse=True)
+        # remember to ignore the background (0)
+        background_index = np.where(ids == 0)[0][0]
         inverse_b = np.broadcast_to(inverse, mask.shape)
         # shape: pose, id count
         region_voxel_count = bincount_axes(inverse, axis=body_3d_axes)
@@ -166,14 +168,16 @@ def process_fus(
                 mean_per_pose = np.nanmean(masked_region_mean, axis=0)
                 event_region_mean = np.nanmean(mean_per_pose, axis=0)
 
-            nan_mask = ~np.isnan(event_region_mean)
-            n = nan_mask.sum()
+            region_mask = ~np.isnan(event_region_mean)
+            # ignore background here
+            region_mask[background_index] = False
+            n = region_mask.sum()
             dfs.append(pl.DataFrame({
                 'subject': [session.subject] * n,
                 **{name: [cond] * n for name, cond in zip(dataset.CONDITION_NAMES, session.conditions)},
                 'epoch_condition': [k] * n,
-                'brain_region_id': ids[nan_mask],
-                'value': event_region_mean[nan_mask],
+                'brain_region_id': ids[region_mask],
+                'value': event_region_mean[region_mask],
             }))
 
     df = pl.concat(dfs)
