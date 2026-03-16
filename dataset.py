@@ -39,31 +39,29 @@ class Dataset:
             if not drug_dir.is_dir(): continue
             drug = drug_dir.name.lower()
             epochs_dir = drug_dir / 'eventTime'
-            for genotype_dir in epochs_dir.iterdir():
-                if not genotype_dir.is_dir(): continue
-                scan_dir = drug_dir / 'Scan' / genotype_dir.name.replace('eventTime_', 'Scan_')
-                if not scan_dir.is_dir():
-                    warnings.warn(f'scan folder "{scan_dir}" does not exist, skipping')
+            scan_dir = drug_dir / 'Scan'
+            if not scan_dir.is_dir():
+                warnings.warn(f'scan folder "{scan_dir}" does not exist, skipping')
+                continue
+            for epochs_path in epochs_dir.glob('[!~]*.xlsx'):
+                parts = epochs_path.stem.split('_')
+                subject = parts[0].lower()
+                prefix = '_'.join(parts[:-3])
+                try:
+                    bps_path = self._find_only_file(scan_dir, prefix, '.source.bps')
+                    fus_scan_path = self._find_only_file(scan_dir, prefix, 'fus3D.source.scan')
+                except FileNotFoundError as e:
+                    warnings.warn(str(e))
                     continue
-                for epochs_path in genotype_dir.glob('[!~]*.xlsx'):
-                    parts = epochs_path.stem.split('_')
-                    subject = parts[0].lower()
-                    prefix = '_'.join(parts[:-3])
-                    try:
-                        bps_path = self._find_only_file(scan_dir, prefix, '.source.bps')
-                        fus_scan_path = self._find_only_file(scan_dir, prefix, 'fus3D.source.scan')
-                    except FileNotFoundError as e:
-                        warnings.warn(str(e))
-                        continue
-                    self.sessions.append(
-                        SessionMetadata(
-                            fus_scan_path=fus_scan_path,
-                            bps_path=bps_path,
-                            epochs_path=epochs_path,
-                            subject=subject,
-                            conditions=(drug,),
-                        )
+                self.sessions.append(
+                    SessionMetadata(
+                        fus_scan_path=fus_scan_path,
+                        bps_path=bps_path,
+                        epochs_path=epochs_path,
+                        subject=subject,
+                        conditions=(drug,),
                     )
+                )
 
     def __iter__(self) -> Iterator[Session]:
         it = self.sessions
