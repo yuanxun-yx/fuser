@@ -1,6 +1,4 @@
-from pathlib import Path
-import warnings
-import nrrd
+from typing import Any
 import polars as pl
 import numpy as np
 from numpy.linalg import inv
@@ -74,28 +72,19 @@ def bincount_axes(
 
 
 def process_fus(
-        dataset_path: str | Path,
+        dataset: Dataset,
         *,
-        annotation_path: str | Path,
-        save_path: str | Path,
+        annotation_header: dict[str, Any],
+        annotation_data: np.ndarray,
         voxel_percentile_thresh: float,
-        voxel_norm_percentile: float,
         valid_region_voxel_ratio: float,
-        valid_region_pose_ratio: float,
         fus_delay_s: float,
-):
-    dataset_path = Path(dataset_path)
-    annotation_path = Path(annotation_path)
-    save_path = Path(save_path)
-
-    annotation_data, annotation_header = nrrd.read(annotation_path)
-
+) -> pl.DataFrame:
     annotation_transform = np.eye(4)
     annotation_transform[:3, :3] = annotation_header['space directions']
     annotation_transform[:3, 3] = annotation_header['space origin']
 
     dfs = []
-    dataset = Dataset(dataset_path)
     # vectorize this in the future, size of session is ~200MB
     for session in dataset:
         fus_scan = session.fus_scan
@@ -204,4 +193,4 @@ def process_fus(
             }))
 
     df = pl.concat(dfs)
-    df.write_parquet(save_path)
+    return df
