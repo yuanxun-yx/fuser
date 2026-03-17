@@ -195,6 +195,7 @@ def process_fus(
             n = m.sum()
 
             dfs.append(pl.DataFrame({
+                'session': [fus_scan.metadata.file_id] * n,
                 'subject': [session.subject] * n,
                 **{name: [cond] * n for name, cond in zip(dataset.CONDITION_NAMES, session.conditions)},
                 'epoch_condition': [k] * n,
