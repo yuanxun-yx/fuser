@@ -4,6 +4,7 @@ import nrrd
 import polars as pl
 import numpy as np
 from numpy.linalg import inv
+from scipy.linalg import lstsq
 from scipy.ndimage import affine_transform, label, binary_fill_holes, binary_closing
 
 from dataset import Dataset
@@ -27,13 +28,20 @@ BRAIN_TO_ANNOTATION[:3, 3] = BRAIN_ORIGIN_CCFv3_COORD_POST_INF_ML
 BRAIN_TO_ANNOTATION[:3, :3] *= 4e3
 
 
-def bincount_axes(x: np.ndarray, /, axis: int | tuple[int, ...], weights: np.ndarray = None) -> np.ndarray:
+def bincount_axes(
+        x: np.ndarray,
+        /,
+        axis: int | tuple[int, ...] | None = None,
+        weights: np.ndarray = None,
+) -> np.ndarray:
     """
     apply numpy.bincount on given axes of x
     """
     if weights is not None and x.shape != weights.shape:
         raise ValueError(f'x {x.shape} and weights {weights.shape} shape do not match')
 
+    if axis is None:
+        axis = tuple(range(x.ndim))
     if isinstance(axis, int):
         axis = (axis,)
 
@@ -99,29 +107,50 @@ def process_fus(
 
         time = fus_scan.acquisition.time.squeeze(2)
         time += fus_delay_s
-        event_mask = {}
-        for k, v in session.epochs.items():
-            event_mask[k] = ((time[..., None] >= v[:, 0]) & (time[..., None] <= v[:, 1])).any(axis=-1)
 
-        threshold = np.percentile(data, voxel_percentile_thresh, axis=(2, 3, 4),
-                                  keepdims=True)
-        mask = data > threshold
+        epochs = session.epochs
+        # shape: event + 1, scan repeat, pose
+        event_mask = np.empty((len(epochs) + 1, *data.shape[:2]), dtype=bool)
+        # intercept
+        event_mask[-1] = 1
+        for i, v in enumerate(session.epochs.values()):
+            event_mask[i] = ((time[..., None] >= v[:, 0]) & (time[..., None] <= v[:, 1])).any(axis=-1)
+
+        # each pose + 3d correspond to one voxel in fixed space, not 3d alone
+        # because probe is moving, think as 4d coordinate
+        # check if each 4d point is valid
+        data_avg_scans = data.mean(axis=0)
+        threshold = np.percentile(data_avg_scans, voxel_percentile_thresh)
+        # shape: pose, x, y, z
+        mask = data_avg_scans > threshold
         # morphology process each 3d mask
-        for i in range(data.shape[0]):
-            for j in range(data.shape[1]):
-                s = mask[i, j]
-                labels, num = label(s)
-                sizes = np.bincount(labels.ravel())
-                largest_label = np.argmax(sizes[1:]) + 1
-                body_mask = labels == largest_label
-                # ignore scan direction because it has much smaller size
-                for k in range(body_mask.shape[1]):
-                    s[:, k, :] = binary_closing(binary_fill_holes(body_mask[:, k, :]))
+        for i in range(mask.shape[0]):
+            s = mask[i]
+            labels, num = label(s)
+            sizes = np.bincount(labels.ravel())
+            largest_label = np.argmax(sizes[1:]) + 1
+            body_mask = labels == largest_label
+            # ignore scan direction because it has much smaller size
+            for k in range(body_mask.shape[1]):
+                s[:, k, :] = binary_closing(binary_fill_holes(body_mask[:, k, :]))
 
-        data = np.log(data)
-        per_body_norm = np.percentile(data, voxel_norm_percentile, axis=(2, 3, 4),
-                                      keepdims=True)
-        data /= per_body_norm
+        # do not perform log here to preserve linearity
+        # z-score: within scan repeats
+        mean = data.mean(axis=0, keepdims=True)
+        std = data.std(axis=0, keepdims=True)
+        # avoid 0/0 = NaN
+        data = np.where(std > 0, (data - mean) / std, 0)
+
+        # GLM: to use event to explain fUS
+        # shape: pose, scan repeat, event + 1
+        x = event_mask.T
+        # shape: pose, scan repeat, voxels
+        y = data.reshape(*data.shape[:2], -1).swapaxes(0, 1)
+        # shape: pose, event + 1, voxels
+        beta, *_ = lstsq(x, y)
+        # shape: event, pose, x, y, z
+        beta = beta.swapaxes(0, 1)[:-1]
+        beta = beta.reshape(*beta.shape[:2], *data.shape[-3:])
 
         voxels_to_annotation_index = (
                 inv(annotation_transform) @ BRAIN_TO_ANNOTATION @ inv(session.brain_to_lab) @
@@ -138,52 +167,39 @@ def process_fus(
                 order=0  # nearest neighbor
             )
 
-        body_3d_axes = (-3, -2, -1)
         # convert non-consecutive region ids to 0, 1, 2, ...
         ids, inverse = np.unique(voxel_annotations, return_inverse=True)
         # remember to ignore the background (0)
         background_index = np.where(ids == 0)[0][0]
-        inverse_b = np.broadcast_to(inverse, mask.shape)
-        # shape: pose, id count
-        region_voxel_count = bincount_axes(inverse, axis=body_3d_axes)
-        # shape: repeat, pose, id count
-        region_valid_voxel_count = bincount_axes(inverse_b, axis=body_3d_axes, weights=mask)
-        region_valid_sum = bincount_axes(inverse_b, axis=body_3d_axes, weights=mask * data)
+        # shape: id count
+        region_voxel_count = bincount_axes(inverse)
+        region_valid_voxel_count = bincount_axes(inverse, weights=mask)
+        # shape: event, id count
+        inverse_b = np.broadcast_to(inverse, beta.shape)
+        region_valid_beta_sum = bincount_axes(inverse_b, axis=tuple(range(-4, 0)),
+                                              weights=mask[None, ...] * beta)
 
-        # shape: scan repeat, pose, id count
-        # contains nan if valid count is 0
+        # shape: id count
+        # contains NaN if valid count is 0
         with np.errstate(invalid='ignore'):
-            region_valid_mean = region_valid_sum / region_valid_voxel_count
-            region_valid_ratio = region_valid_voxel_count / region_voxel_count[None, ...]
+            region_valid_ratio = region_valid_voxel_count / region_voxel_count
+            region_beta_mean = region_valid_beta_sum / region_valid_voxel_count
         valid_region_mask = region_valid_ratio >= valid_region_voxel_ratio
+        # ignore background here
+        valid_region_mask[background_index] = False
 
-        # check if each region is stable in certain pose across scan repeats
-        region_valid_ratio_at_pose = valid_region_mask.mean(axis=0)
-        # shape: (pose, id count)
-        valid_pose_region_mask = region_valid_ratio_at_pose >= valid_region_pose_ratio
+        beta_mean_mask = ~np.isnan(region_beta_mean) & valid_region_mask[None, ...]
 
-        for k, v in event_mask.items():
-            # slice belong to group & region has enough valid voxels
-            m = v[..., None] & valid_region_mask & valid_pose_region_mask[None, ...]
-            masked_region_mean = np.where(m, region_valid_mean, np.nan)
-            # take mean of each pose first, then mean among poses
-            # because the number of each pose in each group is not the same
-            # shape: (pose, id count)
-            with warnings.catch_warnings():
-                warnings.filterwarnings('ignore', message='Mean of empty slice')
-                mean_per_pose = np.nanmean(masked_region_mean, axis=0)
-                event_region_mean = np.nanmean(mean_per_pose, axis=0)
+        for i, k in enumerate(epochs.keys()):
+            m = beta_mean_mask[i]
+            n = m.sum()
 
-            region_mask = ~np.isnan(event_region_mean)
-            # ignore background here
-            region_mask[background_index] = False
-            n = region_mask.sum()
             dfs.append(pl.DataFrame({
                 'subject': [session.subject] * n,
                 **{name: [cond] * n for name, cond in zip(dataset.CONDITION_NAMES, session.conditions)},
                 'epoch_condition': [k] * n,
-                'brain_region_id': ids[region_mask],
-                'value': event_region_mean[region_mask],
+                'brain_region_id': ids[m],
+                'value': region_beta_mean[i, m],
             }))
 
     df = pl.concat(dfs)
