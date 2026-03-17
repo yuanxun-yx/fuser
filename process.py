@@ -78,7 +78,7 @@ def process_fus(
         annotation_data: np.ndarray,
         voxel_percentile_thresh: float,
         valid_region_voxel_ratio: float,
-        fus_delay_s: float,
+        hemodynamic_lag: float,
 ) -> pl.DataFrame:
     annotation_transform = np.eye(4)
     annotation_transform[:3, :3] = annotation_header['space directions']
@@ -95,7 +95,7 @@ def process_fus(
         data = fus_scan.data.squeeze(2)
 
         time = fus_scan.acquisition.time.squeeze(2)
-        time += fus_delay_s
+        time += hemodynamic_lag
 
         epochs = session.epochs
         # shape: event + 1, scan repeat, pose

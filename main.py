@@ -70,8 +70,9 @@ def pipeline(config: dict):
             annotation_data=data,
             voxel_percentile_thresh=parameters['voxel_percentile_thresh'],
             valid_region_voxel_ratio=parameters['valid_region_voxel_ratio'],
-            fus_delay_s=parameters['fus_delay_s'],
+            hemodynamic_lag=parameters['hemodynamic_lag'],
         )
+        df.write_parquet(fus_region_values_path)
         print(f'processed fus data saved to "{fus_region_values_path}"')
     else:
         print(f"loading processed fus data from {fus_region_values_path}")
