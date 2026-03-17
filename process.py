@@ -2,7 +2,6 @@ from typing import Any
 import polars as pl
 import numpy as np
 from numpy.linalg import inv
-from scipy.linalg import lstsq
 from scipy.ndimage import affine_transform, label, binary_fill_holes, binary_closing
 
 from dataset import Dataset
@@ -99,9 +98,7 @@ def process_fus(
 
         epochs = session.epochs
         # shape: event + 1, scan repeat, pose
-        event_mask = np.empty((len(epochs) + 1, *data.shape[:2]), dtype=bool)
-        # intercept
-        event_mask[-1] = 1
+        event_mask = np.empty((len(epochs), *data.shape[:2]), dtype=bool)
         for i, v in enumerate(session.epochs.values()):
             event_mask[i] = ((time[..., None] >= v[:, 0]) & (time[..., None] <= v[:, 1])).any(axis=-1)
 
@@ -123,23 +120,9 @@ def process_fus(
             for k in range(body_mask.shape[1]):
                 s[:, k, :] = binary_closing(binary_fill_holes(body_mask[:, k, :]))
 
-        # do not perform log here to preserve linearity
-        # z-score: within scan repeats
-        mean = data.mean(axis=0, keepdims=True)
-        std = data.std(axis=0, keepdims=True)
-        # avoid 0/0 = NaN
-        data = np.where(std > 0, (data - mean) / std, 0)
-
-        # GLM: to use event to explain fUS
-        # shape: pose, scan repeat, event + 1
-        x = event_mask.T
-        # shape: pose, scan repeat, voxels
-        y = data.reshape(*data.shape[:2], -1).swapaxes(0, 1)
-        # shape: pose, event + 1, voxels
-        beta, *_ = lstsq(x, y)
-        # shape: event, pose, x, y, z
-        beta = beta.swapaxes(0, 1)[:-1]
-        beta = beta.reshape(*beta.shape[:2], *data.shape[-3:])
+        r = session.processed
+        r = np.swapaxes(r, 2, 1)
+        r = r[..., None, :]
 
         voxels_to_annotation_index = (
                 inv(annotation_transform) @ BRAIN_TO_ANNOTATION @ inv(session.brain_to_lab) @
@@ -164,9 +147,9 @@ def process_fus(
         region_voxel_count = bincount_axes(inverse)
         region_valid_voxel_count = bincount_axes(inverse, weights=mask)
         # shape: event, id count
-        inverse_b = np.broadcast_to(inverse, beta.shape)
+        inverse_b = np.broadcast_to(inverse, r.shape)
         region_valid_beta_sum = bincount_axes(inverse_b, axis=tuple(range(-4, 0)),
-                                              weights=mask[None, ...] * beta)
+                                              weights=mask[None, ...] * r)
 
         # shape: id count
         # contains NaN if valid count is 0
@@ -179,7 +162,7 @@ def process_fus(
 
         beta_mean_mask = ~np.isnan(region_beta_mean) & valid_region_mask[None, ...]
 
-        for i, k in enumerate(epochs.keys()):
+        for i, k in enumerate(['social', 'non-social']):
             m = beta_mean_mask[i]
             n = m.sum()
 
