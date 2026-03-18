@@ -2,7 +2,8 @@ from typing import Any
 import polars as pl
 import numpy as np
 from numpy.linalg import inv
-from scipy.ndimage import affine_transform, label, binary_fill_holes, binary_closing
+from scipy.ndimage import affine_transform, label, binary_fill_holes, binary_closing, shift, percentile_filter
+from skimage.registration import phase_cross_correlation
 
 from dataset import Dataset
 
@@ -153,6 +154,20 @@ def process_fus(
         # space: (pose, x, y, z)
         # pose determines both time and space, therefore we cannot simply decouple data to (T, N)
 
+        # in session registration
+        ref = data.mean(axis=(0, 1))
+        motion = np.empty((*data.shape[:2], 3))
+        for i in range(data.shape[0]):
+            for j in range(data.shape[1]):
+                mv = data[i, j]
+                sh, *_ = phase_cross_correlation(
+                    reference_image=ref,
+                    moving_image=mv,
+                    upsample_factor=2,
+                )
+                motion[i, j] = sh
+                data[i, j] = shift(mv, sh, order=1)
+
         # GLM: use events as X to explain fUS as y, not use fUS to predict events
 
         time_vals, inverse = np.unique(time, return_inverse=True)
@@ -222,7 +237,7 @@ def process_fus(
 
         beta_mean_mask = ~np.isnan(region_beta_mean) & valid_region_mask[None, ...]
 
-        for i, k in enumerate([EVENT_NAME, NON_EVENT_NAME]):
+        for i, j in enumerate([EVENT_NAME, NON_EVENT_NAME]):
             m = beta_mean_mask[i]
             n = m.sum()
 
@@ -230,7 +245,7 @@ def process_fus(
                 'session': [fus_scan.metadata.file_id] * n,
                 'subject': [session.subject] * n,
                 **{name: [cond] * n for name, cond in zip(dataset.CONDITION_NAMES, session.conditions)},
-                'epoch_condition': [k] * n,
+                'epoch_condition': [j] * n,
                 'brain_region_id': ids[m],
                 'value': region_beta_mean[i, m],
             }))
