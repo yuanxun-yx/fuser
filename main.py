@@ -41,8 +41,15 @@ def pipeline(config: dict):
 
         print(f'loading annotation from "{annotation_path}"')
         data, header = nrrd.read(str(annotation_path))
-        print(f'getting ids from "{annotation_path}"')
-        ids = np.unique(data)
+        annotation_unique_path = Path(paths['annotation_unique'])
+        if not annotation_unique_path.is_file():
+            print(f'getting ids from "{annotation_path}"')
+            ids = np.unique(data)
+            np.save(annotation_unique_path, ids)
+            print(f'annotation unique ids saved to "{annotation_unique_path}"')
+        else:
+            print(f'loading annotation unique ids from "{annotation_unique_path}"')
+            ids = np.load(annotation_unique_path)
 
         level = parameters['st_level']
         print(f"converting regions to highest parents below st level {level}")
