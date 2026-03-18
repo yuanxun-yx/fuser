@@ -2,10 +2,7 @@ from typing import Any
 import polars as pl
 import numpy as np
 from numpy.linalg import inv
-from scipy.linalg import lstsq
 from scipy.ndimage import affine_transform, label, binary_fill_holes, binary_closing
-from scipy.signal import detrend, convolve
-from nilearn.glm.first_level import spm_hrf, glover_hrf
 
 from dataset import Dataset
 
@@ -34,7 +31,7 @@ NON_EVENT_NAME = 'non_event'
 def get_event_df(
         epochs: np.ndarray,
         total_time: float,
-        fus_delay_s: float,
+        hemodynamic_lag: float,
         max_event_n: int,
         min_event_time: float,
         max_event_time: float,
@@ -51,7 +48,7 @@ def get_event_df(
     if epochs.ndim != 2 or epochs.shape[1] != 2:
         raise ValueError(f"epochs should have shape (n,2), got {epochs.shape}")
 
-    epochs += fus_delay_s
+    epochs += hemodynamic_lag
     event_n = epochs.shape[0]
     non_event_epochs = np.empty((event_n + 1, 2), dtype=epochs.dtype)
     non_event_epochs[0, 0] = .0
@@ -128,7 +125,7 @@ def process_fus(
         annotation_data: np.ndarray,
         voxel_percentile_thresh: float,
         valid_region_voxel_ratio: float,
-        fus_delay_s: float,
+        hemodynamic_lag: float,
         max_event_n: int,
         min_event_time: float,
         max_event_time: float,
@@ -162,7 +159,7 @@ def process_fus(
         event_df, max_time = get_event_df(
             epochs=session.epochs,
             total_time=time_vals[-1],
-            fus_delay_s=fus_delay_s,
+            hemodynamic_lag=hemodynamic_lag,
             max_event_n=max_event_n,
             min_event_time=min_event_time,
             max_event_time=max_event_time,
