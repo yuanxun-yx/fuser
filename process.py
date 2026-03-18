@@ -48,11 +48,11 @@ def bincount_axes(
     x = np.moveaxis(x, axis, dest)
 
     batch_shape = x.shape[:-len(axis)]
-    reduce_size = np.prod(x.shape[-len(axis):]).item()
+    reduce_size = np.prod(x.shape[-len(axis):])
 
     x = x.reshape(-1, reduce_size)
 
-    k = x.max().item() + 1
+    k = x.max() + 1
     b = x.shape[0]
 
     offset = np.arange(b)[:, None] * k
