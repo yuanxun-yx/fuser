@@ -30,7 +30,7 @@ class Session:
 class Dataset:
     CONDITION_NAMES = ('drug',)
 
-    def __init__(self, path: str | Path, show_progress: bool = True):
+    def __init__(self, path: str | Path, show_progress: bool = True) -> None:
         self.path = Path(path)
         self.show_progress = show_progress
         self.sessions = []
