@@ -232,7 +232,7 @@ dependencies = [
 requires-dist = [
     { name = "h5py", specifier = ">=3.16" },
     { name = "matplotlib", specifier = ">=3.10" },
-    { name = "nilearn", specifier = ">=0.13.1" },
+    { name = "nilearn", specifier = ">=0.13" },
     { name = "openpyxl", specifier = ">=3.1" },
     { name = "polars", extras = ["pandas"], specifier = ">=1.39" },
     { name = "pynrrd", specifier = ">=1.1" },

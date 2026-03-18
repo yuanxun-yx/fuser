@@ -24,7 +24,7 @@ class Session:
     conditions: tuple[str, ...]
     fus_scan: Scan
     brain_to_lab: np.ndarray
-    epochs: dict[str, np.ndarray]
+    epochs: np.ndarray
 
 
 class Dataset:

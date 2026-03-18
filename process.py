@@ -27,6 +27,54 @@ BRAIN_TO_ANNOTATION[:3, 3] = BRAIN_ORIGIN_CCFv3_COORD_POST_INF_ML
 # magic number from Iconeous: 4mm (4000 um)
 BRAIN_TO_ANNOTATION[:3, :3] *= 4e3
 
+EVENT_NAME = 'event'
+NON_EVENT_NAME = 'non_event'
+
+
+def get_event_df(
+        epochs: np.ndarray,
+        total_time: float,
+        fus_delay_s: float,
+        max_event_n: int,
+        min_event_time: float,
+        max_event_time: float,
+        post_event_exclusion_window: float,
+        include_start_for_non_event: bool = False,
+) -> tuple[pl.DataFrame, float]:
+    def get_df(events: np.ndarray, type: str) -> pl.DataFrame:
+        return pl.DataFrame({
+            'onset': events[:, 0],
+            'duration': events[:, 1],
+            'type': [type] * events.shape[0],
+        })
+
+    if epochs.ndim != 2 or epochs.shape[1] != 2:
+        raise ValueError(f"epochs should have shape (n,2), got {epochs.shape}")
+
+    epochs += fus_delay_s
+    event_n = epochs.shape[0]
+    non_event_epochs = np.empty((event_n + 1, 2), dtype=epochs.dtype)
+    non_event_epochs[0, 0] = .0
+    non_event_epochs[-1, 1] = total_time
+    non_event_epochs[1:, 0] = epochs[:, 1] + post_event_exclusion_window
+    non_event_epochs[:-1, 1] = epochs[:, 0]
+    if max_event_n >= event_n:
+        max_time = total_time
+    else:
+        max_time = epochs[max_event_n, 0]
+        epochs = epochs[:max_event_n]
+        non_event_epochs = non_event_epochs[:max_event_n + 1]
+    epochs[:, 1] -= epochs[:, 0]
+    epochs = epochs[epochs[:, 1] >= min_event_time]
+    epochs[epochs[:, 1] > max_event_time, 1] = max_event_time
+    event_df = get_df(epochs, EVENT_NAME)
+
+    non_event_epochs = non_event_epochs[int(include_start_for_non_event):]
+    non_event_epochs[:, 1] -= non_event_epochs[:, 0]
+    non_event_df = get_df(non_event_epochs, NON_EVENT_NAME)
+
+    return pl.concat([event_df, non_event_df]), max_time
+
 
 def bincount_axes(
         x: np.ndarray,
@@ -81,6 +129,10 @@ def process_fus(
         voxel_percentile_thresh: float,
         valid_region_voxel_ratio: float,
         fus_delay_s: float,
+        max_event_n: int,
+        min_event_time: float,
+        max_event_time: float,
+        post_event_exclusion_window: float,
 ) -> pl.DataFrame:
     annotation_transform = np.eye(4)
     annotation_transform[:3, :3] = annotation_header['space directions']
@@ -95,36 +147,32 @@ def process_fus(
         if n_block_repeat != 1:
             raise NotImplementedError(f'block repeat number is {n_block_repeat}, we only handle 1 currently')
         data = fus_scan.data.squeeze(2)
-
         time = fus_scan.acquisition.time.squeeze(2)
-        time += fus_delay_s
 
-        epochs = session.epochs
-        # shape: event, scan repeat, pose
-        event_mask = np.empty((len(epochs), *data.shape[:2]), dtype=bool)
-        for i, v in enumerate(session.epochs.values()):
-            event_mask[i] = ((time[..., None] >= v[:, 0]) & (time[..., None] <= v[:, 1])).any(axis=-1)
-        # haemodynamic response
-        diff = np.diff(time, axis=0)
-        dt = diff.mean()
-        if not np.allclose(dt, diff):
-            raise ValueError(f"dt not identical for session {fus_scan.metadata.file_id.hex()}")
-        hrf = glover_hrf(dt)
-        kernel = np.array([.25, .5, .25])
-        # shape: event + 1, scan repeat, pose
-        design = np.empty((event_mask.shape[0] + 1, *event_mask.shape[1:]), dtype=hrf.dtype)
-        # intercept
-        design[-1] = 1
-        for i in range(event_mask.shape[0]):
-            for j in range(event_mask.shape[-1]):
-                design[i, :, j] = convolve(event_mask[i, :, j], kernel, mode='same')
+        # we don't use nilearn.first_level directly because data structure is not usual 4d array
+        # the problem with fUS data is that time and space axes are coupled
+        # data: (scan, pose, x, y, z)
+        # time: (scan, pose)
+        # space: (pose, x, y, z)
+        # pose determines both time and space, therefore we cannot simply decouple data to (T, N)
 
-        # each pose + 3d correspond to one voxel in fixed space, not 3d alone
-        # because probe is moving, think as 4d coordinate
-        # check if each 4d point is valid
+        # GLM: use events as X to explain fUS as y, not use fUS to predict events
+
+        time_vals, inverse = np.unique(time, return_inverse=True)
+        event_df, max_time = get_event_df(
+            epochs=session.epochs,
+            total_time=time_vals[-1],
+            fus_delay_s=fus_delay_s,
+            max_event_n=max_event_n,
+            min_event_time=min_event_time,
+            max_event_time=max_event_time,
+            post_event_exclusion_window=post_event_exclusion_window,
+        )
+
+        # check if each 4d space point is valid
         data_avg_scans = data.mean(axis=0)
         threshold = np.percentile(data_avg_scans, voxel_percentile_thresh)
-        # shape: pose, x, y, z
+        # (pose, x, y, z)
         mask = data_avg_scans > threshold
         # morphology process each 3d mask
         for i in range(mask.shape[0]):
@@ -137,31 +185,14 @@ def process_fus(
             for k in range(body_mask.shape[1]):
                 s[:, k, :] = binary_closing(binary_fill_holes(body_mask[:, k, :]))
 
-        # do not perform log here to preserve linearity
-        data = detrend(data, axis=0)
-        # z-score: within scan repeats
-        # mean is done by detrend
-        std = data.std(axis=0, keepdims=True)
-        # avoid 0/0 = NaN
-        data = np.where(std > 0, data / std, 0)
-
-        # GLM: to use event to explain fUS
-        # shape: pose, scan repeat, event + 1
-        x = design.T
-        # shape: pose, scan repeat, voxels
-        y = data.reshape(*data.shape[:2], -1).swapaxes(0, 1)
-        # shape: pose, event + 1, voxels
-        beta, *_ = lstsq(x, y)
-        # shape: event, pose, x, y, z
-        beta = beta.swapaxes(0, 1)[:-1]
-        beta = beta.reshape(*beta.shape[:2], *data.shape[-3:])
+        beta = data.mean(axis=0)[None]
 
         voxels_to_annotation_index = (
                 inv(annotation_transform) @ BRAIN_TO_ANNOTATION @ inv(session.brain_to_lab) @
                 fus_scan.acquisition.probe_to_lab @ fus_scan.acquisition.voxels_to_probe
         )
 
-        # shape: pose, x, y, z (no scan repeat because only depend on pose)
+        # (pose, x, y, z) (no scan because only depend on pose)
         voxel_annotations = np.empty(data.shape[1:], dtype=annotation_data.dtype)
         for i in range(data.shape[1]):
             voxel_annotations[i] = affine_transform(
@@ -175,15 +206,15 @@ def process_fus(
         ids, inverse = np.unique(voxel_annotations, return_inverse=True)
         # remember to ignore the background (0)
         background_index = np.where(ids == 0)[0][0]
-        # shape: id count
+        # (id count,)
         region_voxel_count = bincount_axes(inverse)
         region_valid_voxel_count = bincount_axes(inverse, weights=mask)
-        # shape: event, id count
+        # (event, id count)
         inverse_b = np.broadcast_to(inverse, beta.shape)
         region_valid_beta_sum = bincount_axes(inverse_b, axis=tuple(range(-4, 0)),
                                               weights=mask[None, ...] * beta)
 
-        # shape: id count
+        # (id count)
         # contains NaN if valid count is 0
         with np.errstate(invalid='ignore'):
             region_valid_ratio = region_valid_voxel_count / region_voxel_count
@@ -194,7 +225,7 @@ def process_fus(
 
         beta_mean_mask = ~np.isnan(region_beta_mean) & valid_region_mask[None, ...]
 
-        for i, k in enumerate(epochs.keys()):
+        for i, k in enumerate([EVENT_NAME, NON_EVENT_NAME]):
             m = beta_mean_mask[i]
             n = m.sum()
 

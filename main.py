@@ -71,6 +71,10 @@ def pipeline(config: dict):
             voxel_percentile_thresh=parameters['voxel_percentile_thresh'],
             valid_region_voxel_ratio=parameters['valid_region_voxel_ratio'],
             fus_delay_s=parameters['fus_delay_s'],
+            max_event_n=parameters['max_event_n'],
+            min_event_time=parameters['min_event_time'],
+            max_event_time=parameters['max_event_time'],
+            post_event_exclusion_window=parameters['post_event_exclusion_window'],
         )
         print(f'processed fus data saved to "{fus_region_values_path}"')
     else:

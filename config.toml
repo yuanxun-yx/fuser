@@ -5,6 +5,7 @@ ontology = 'ontology.json'
 fus_region_values = 'fus_region_values.parquet'
 plots = 'plots'
 genotype = 'genotype.csv'
+annotation_unique = 'annotation_unique.npy'
 
 [parameters]
 voxel_percentile_thresh = 50
@@ -12,3 +13,7 @@ valid_region_voxel_ratio = 0.8
 min_sample_n = 5
 fus_delay_s = 2.0
 st_level = 8
+max_event_n = 7
+min_event_time = 3.0
+max_event_time = 20.0
+post_event_exclusion_window = 5.0
