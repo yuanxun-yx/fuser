@@ -1,8 +1,10 @@
 from typing import Any
 import polars as pl
 import numpy as np
-from numpy.linalg import inv
-from scipy.ndimage import affine_transform, label, binary_fill_holes, binary_closing, shift, percentile_filter
+from nilearn.glm import compute_contrast
+from nilearn.glm.first_level import make_first_level_design_matrix, run_glm
+from numpy.linalg import inv, svd
+from scipy.ndimage import affine_transform, label, binary_fill_holes, binary_closing, shift
 from skimage.registration import phase_cross_correlation
 
 from dataset import Dataset
@@ -26,7 +28,7 @@ BRAIN_TO_ANNOTATION[:3, 3] = BRAIN_ORIGIN_CCFv3_COORD_POST_INF_ML
 BRAIN_TO_ANNOTATION[:3, :3] *= 4e3
 
 EVENT_NAME = 'event'
-NON_EVENT_NAME = 'non_event'
+NON_EVENT_NAME = 'non-event'
 
 
 def get_event_df(
@@ -43,7 +45,7 @@ def get_event_df(
         return pl.DataFrame({
             'onset': events[:, 0],
             'duration': events[:, 1],
-            'type': [type] * events.shape[0],
+            'trial_type': [type] * events.shape[0],
         })
 
     if epochs.ndim != 2 or epochs.shape[1] != 2:
@@ -60,14 +62,14 @@ def get_event_df(
         max_time = total_time
     else:
         max_time = epochs[max_event_n, 0]
-        epochs = epochs[:max_event_n]
-        non_event_epochs = non_event_epochs[:max_event_n + 1]
+        epochs = epochs[:max_event_n, :]
+        non_event_epochs = non_event_epochs[:max_event_n + 1, :]
     epochs[:, 1] -= epochs[:, 0]
     epochs = epochs[epochs[:, 1] >= min_event_time]
     epochs[epochs[:, 1] > max_event_time, 1] = max_event_time
     event_df = get_df(epochs, EVENT_NAME)
 
-    non_event_epochs = non_event_epochs[int(include_start_for_non_event):]
+    non_event_epochs = non_event_epochs[int(include_start_for_non_event):, :]
     non_event_epochs[:, 1] -= non_event_epochs[:, 0]
     non_event_df = get_df(non_event_epochs, NON_EVENT_NAME)
 
@@ -131,6 +133,7 @@ def process_fus(
         min_event_time: float,
         max_event_time: float,
         post_event_exclusion_window: float,
+        pca_n_components: int,
 ) -> pl.DataFrame:
     annotation_transform = np.eye(4)
     annotation_transform[:3, :3] = annotation_header['space directions']
@@ -167,25 +170,13 @@ def process_fus(
                 )
                 motion[i, j] = sh
                 data[i, j] = shift(mv, sh, order=1)
+        motion = motion.reshape(-1, 3)
 
-        # GLM: use events as X to explain fUS as y, not use fUS to predict events
-
-        time_vals, inverse = np.unique(time, return_inverse=True)
-        event_df, max_time = get_event_df(
-            epochs=session.epochs,
-            total_time=time_vals[-1],
-            hemodynamic_lag=hemodynamic_lag,
-            max_event_n=max_event_n,
-            min_event_time=min_event_time,
-            max_event_time=max_event_time,
-            post_event_exclusion_window=post_event_exclusion_window,
-        )
-
-        # check if each 4d space point is valid
-        data_avg_scans = data.mean(axis=0)
-        threshold = np.percentile(data_avg_scans, voxel_percentile_thresh)
+        # voxel mask: check if each 4d space point is valid
+        mean = data.mean(axis=0)
+        threshold = np.percentile(mean, voxel_percentile_thresh)
         # (pose, x, y, z)
-        mask = data_avg_scans > threshold
+        mask = mean > threshold
         # morphology process each 3d mask
         for i in range(mask.shape[0]):
             s = mask[i]
@@ -197,7 +188,64 @@ def process_fus(
             for k in range(body_mask.shape[1]):
                 s[:, k, :] = binary_closing(binary_fill_holes(body_mask[:, k, :]))
 
-        beta = data.mean(axis=0)[None]
+        # preprocess: z-score
+        mean = mean[None, ...]
+        std = np.std(data, axis=0, keepdims=True)
+        # avoid 0/0 = NaN
+        data = np.where(std > 0, (data - mean) / std, 0)
+
+        # flatten & sort time axes
+        time_r = time.ravel()
+        idx = np.argsort(time_r)
+        time_s = time_r[idx]
+
+        # nuisance
+        local_signal = np.mean(data, axis=(-3, -2, -1))
+        local_signal = local_signal.reshape(-1, 1)
+
+        data_f = data.reshape(data.shape[0] * data.shape[1], -1)
+        u, *_ = svd(data_f, full_matrices=False)
+        pca = u[:, :pca_n_components]
+
+        confounds = np.concatenate([motion, local_signal, pca], axis=1)
+        confounds = confounds[idx, :]
+
+        # GLM: use events as X to explain fUS as y, not use fUS to predict events
+
+        event_df, max_time = get_event_df(
+            epochs=session.epochs,
+            total_time=time_s[-1],
+            hemodynamic_lag=hemodynamic_lag,
+            max_event_n=max_event_n,
+            min_event_time=min_event_time,
+            max_event_time=max_event_time,
+            post_event_exclusion_window=post_event_exclusion_window,
+        )
+
+        design = make_first_level_design_matrix(
+            frame_times=time_s,
+            events=event_df.to_pandas(),
+            hrf_model='glover',
+            drift_model='cosine',
+            high_pass=.01,
+            add_regs=confounds
+        )
+        x = design.values
+        x = x.reshape(*time.shape, x.shape[1])
+
+        contrast = np.zeros(x.shape[-1])
+        contrast[design.columns.get_loc(EVENT_NAME)] = 1
+        contrast[design.columns.get_loc(NON_EVENT_NAME)] = -1
+
+        result = np.empty((2, *data.shape[1:]))
+        for i in range(data.shape[1]):
+            time_mask = time[:, i] <= max_time
+            y = data[:, i, ...].reshape(data.shape[0], -1)
+            labels, res = run_glm(Y=y[time_mask, :], X=x[time_mask, i, :], noise_model='ols')
+            # con = compute_contrast(labels=labels, regression_result=res, con_val=contrast, stat_type='t')
+            result[:, i, ...] = res[0].theta[:2, :].reshape((2, *data.shape[-3:]))
+
+        beta = result
 
         voxels_to_annotation_index = (
                 inv(annotation_transform) @ BRAIN_TO_ANNOTATION @ inv(session.brain_to_lab) @
