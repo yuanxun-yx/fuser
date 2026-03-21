@@ -1,14 +1,10 @@
-import warnings
 from pathlib import Path
 import polars as pl
 import seaborn as sns
-import matplotlib
 import matplotlib.pyplot as plt
 from statannotations.Annotator import Annotator
-from typing import Callable, Any
+from typing import Any
 from tqdm import tqdm
-
-matplotlib.use("Agg")
 
 
 def default_title(group: tuple[Any, ...]) -> str:
@@ -25,7 +21,6 @@ def plot(
         hue_col: str,
         min_sample_n: int,
         show_progress: bool = True,
-        group_to_title: Callable[[tuple[Any, ...]], str] = default_title,
         format: str = 'png'
 ):
     save_path = Path(save_path)
@@ -45,7 +40,7 @@ def plot(
         n = df.select(fig_cols).n_unique()
         it = tqdm(it, total=n)
     for fig_group, fig_df in it:
-        title = group_to_title(fig_group)
+        title = default_title(fig_group)
 
         fig, ax = plt.subplots()
 
@@ -89,5 +84,5 @@ def plot(
         annotator.apply_and_annotate()
 
         ax.set(title=title, xlabel=None, ylabel=None)
-        fig.savefig((save_path / title).with_suffix(f'.{format}'))
+        fig.savefig((save_path / title.replace('/', '')).with_suffix(f'.{format}'))
         plt.close(fig)

@@ -1,10 +1,18 @@
+from pathlib import Path
 from typing import Any
 import polars as pl
 import numpy as np
 from numpy.linalg import inv
 from scipy.ndimage import affine_transform, label, binary_fill_holes, binary_closing
+import warnings
+import json
+import nrrd
 
 from dataset import Dataset
+from download import download_allen_ontology, download_annotation_volume
+from utils import check_valid_transform
+
+type RoiIds = dict[str, list[int]]
 
 # in um
 BRAIN_ORIGIN_CCFv3_COORD_POST_INF_RIGHT = (5500, 5300, 6100)
@@ -73,15 +81,26 @@ def bincount_axes(
 def process_fus(
         dataset: Dataset,
         *,
-        annotation_header: dict[str, Any],
-        annotation_data: np.ndarray,
+        roi_ids: RoiIds,
+        annotation_path: str | Path,
         voxel_percentile_thresh: float,
         valid_region_voxel_ratio: float,
         hemodynamic_lag: float,
 ) -> pl.DataFrame:
-    annotation_transform = np.eye(4)
+    annotation_path = Path(annotation_path)
+
+    if not annotation_path.is_file():
+        print(f'downloading annotation to "{annotation_path}"')
+        download_annotation_volume(annotation_path)
+
+    print(f'loading annotation from "{annotation_path}"')
+    annotation_data, annotation_header = nrrd.read(str(annotation_path))
+
+    annotation_transform = np.empty((4, 4))
+    annotation_transform[3, :] = (0, 0, 0, 1)
     annotation_transform[:3, :3] = annotation_header['space directions']
     annotation_transform[:3, 3] = annotation_header['space origin']
+    check_valid_transform(annotation_transform)
 
     dfs = []
     # vectorize this in the future, size of session is ~200MB
@@ -95,12 +114,6 @@ def process_fus(
 
         time = fus_scan.acquisition.time.squeeze(2)
         time += hemodynamic_lag
-
-        epochs = session.epochs
-        # shape: event + 1, scan repeat, pose
-        event_mask = np.empty((len(epochs), *data.shape[:2]), dtype=bool)
-        for i, v in enumerate(session.epochs.values()):
-            event_mask[i] = ((time[..., None] >= v[:, 0]) & (time[..., None] <= v[:, 1])).any(axis=-1)
 
         # each pose + 3d correspond to one voxel in fixed space, not 3d alone
         # because probe is moving, think as 4d coordinate
@@ -141,39 +154,80 @@ def process_fus(
 
         # convert non-consecutive region ids to 0, 1, 2, ...
         ids, inverse = np.unique(voxel_annotations, return_inverse=True)
-        # remember to ignore the background (0)
-        background_index = np.where(ids == 0)[0][0]
         # shape: id count
         region_voxel_count = bincount_axes(inverse)
         region_valid_voxel_count = bincount_axes(inverse, weights=mask)
         # shape: event, id count
         inverse_b = np.broadcast_to(inverse, r.shape)
-        region_valid_beta_sum = bincount_axes(inverse_b, axis=tuple(range(-4, 0)),
-                                              weights=mask[None, ...] * r)
+        region_valid_value_sum = bincount_axes(inverse_b, axis=tuple(range(-4, 0)), weights=mask[None, ...] * r)
 
-        # shape: id count
-        # contains NaN if valid count is 0
-        with np.errstate(invalid='ignore'):
-            region_valid_ratio = region_valid_voxel_count / region_voxel_count
-            region_beta_mean = region_valid_beta_sum / region_valid_voxel_count
-        valid_region_mask = region_valid_ratio >= valid_region_voxel_ratio
-        # ignore background here
-        valid_region_mask[background_index] = False
+        for roi, subtree in roi_ids.items():
+            m = np.isin(ids, subtree)
+            roi_count = region_voxel_count[m].sum()
+            if roi_count == 0:
+                continue
+            valid_ratio = region_valid_voxel_count[m].sum() / roi_count
+            if valid_ratio < valid_region_voxel_ratio:
+                continue
+            valid_value_mean = region_valid_value_sum[:, m].sum(axis=1) / region_valid_voxel_count[m].sum()
+            for i, k in enumerate(['social', 'non-social']):
+                dfs.append({
+                    'session': fus_scan.metadata.file_id,
+                    'subject': session.subject,
+                    **{name: cond for name, cond in zip(dataset.CONDITION_NAMES, session.conditions)},
+                    'epoch_condition': k,
+                    'roi': roi,
+                    'value': valid_value_mean[i],
+                })
 
-        beta_mean_mask = ~np.isnan(region_beta_mean) & valid_region_mask[None, ...]
-
-        for i, k in enumerate(['social', 'non-social']):
-            m = beta_mean_mask[i]
-            n = m.sum()
-
-            dfs.append(pl.DataFrame({
-                'session': [fus_scan.metadata.file_id] * n,
-                'subject': [session.subject] * n,
-                **{name: [cond] * n for name, cond in zip(dataset.CONDITION_NAMES, session.conditions)},
-                'epoch_condition': [k] * n,
-                'brain_region_id': ids[m],
-                'value': region_beta_mean[i, m],
-            }))
-
-    df = pl.concat(dfs)
+    df = pl.DataFrame(dfs)
     return df
+
+
+def find_subtree(root: dict[str, Any]) -> RoiIds:
+    subtree = {}
+
+    def dfs(node):
+        nodes = [node['id']]
+        for c in node['children']:
+            nodes.extend(dfs(c))
+        subtree[node['acronym']] = nodes
+        return nodes
+
+    dfs(root)
+    return subtree
+
+
+def find_roi_ids(
+        ontology_path: str | Path,
+        roi_path: str | Path,
+) -> RoiIds:
+    ontology_path = Path(ontology_path)
+    roi_path = Path(roi_path)
+
+    with open(roi_path, 'r') as f:
+        rois = set(l for l in f.read().splitlines() if l)
+
+    if not ontology_path.is_file():
+        download_allen_ontology(ontology_path, 1)  # adult mouse
+
+    with open(ontology_path, 'r') as f:
+        ontology = json.load(f)
+
+    subtree = find_subtree(ontology)
+
+    valid_rois = []
+    invalid_rois = []
+
+    for r in rois:
+        if r in subtree:
+            valid_rois.append(r)
+        else:
+            invalid_rois.append(r)
+
+    if invalid_rois:
+        warnings.warn(f"{invalid_rois} are not found in structure tree")
+
+    roi_ids = {k: subtree[k] for k in valid_rois}
+
+    return roi_ids
