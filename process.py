@@ -229,7 +229,7 @@ def process_fus(
                         **{
                             name: cond
                             for name, cond in zip(
-                                dataset.CONDITION_NAMES, session.conditions
+                                dataset.condition_names, session.conditions
                             )
                         },
                         "epoch_condition": k,

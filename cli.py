@@ -35,7 +35,10 @@ def pipeline(config: dict):
             annotation_path=paths["annotation"]
         )
 
-        dataset = Dataset(paths["dataset"])
+        dataset = Dataset(
+            root_path=paths["dataset"],
+            session_path=paths["session"],
+        )
         with Progress() as progress:
             reporter = RichProgressReporter(
                 progress, description="processing raw fUS scans..."

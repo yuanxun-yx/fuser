@@ -3,94 +3,88 @@ from typing import Iterator
 import logging
 from dataclasses import dataclass
 import numpy as np
+import polars as pl
+from bisect import bisect_left
 
 from scan import read_scan, read_bps, Scan
-from epochs import read_epochs
 
 logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
-class SessionMetadata:
-    fus_scan_path: Path
-    bps_path: Path
-    epochs_path: Path
-    subject: str
-    conditions: tuple[str, ...]
-
-
-@dataclass(frozen=True)
 class Session:
+    id: str
     subject: str
     conditions: tuple[str, ...]
     fus_scan: Scan
     brain_to_lab: np.ndarray
-    epochs: np.ndarray
+
+
+def match_prefix(prefix: str, files: list[str]) -> str | None:
+    i = bisect_left(files, prefix)
+    if i < len(files) and files[i].startswith(prefix):
+        return files[i]
+    return None
 
 
 class Dataset:
-    CONDITION_NAMES = ("drug",)
 
-    def __init__(self, path: str | Path) -> None:
-        self.path = Path(path)
-        self.sessions = []
+    def __init__(self, root_path: str | Path, session_path: str | Path) -> None:
+        self._root_path = Path(root_path)
 
-        for drug_dir in self.path.iterdir():
-            if not drug_dir.is_dir():
-                continue
-            drug = drug_dir.name.lower()
-            epochs_dir = drug_dir / "eventTime"
-            scan_dir = drug_dir / "Scan"
-            if not scan_dir.is_dir():
-                logging.warning(f'scan folder "{scan_dir}" does not exist, skipping')
-                continue
-            for epochs_path in epochs_dir.glob("[!~]*.xlsx"):
-                parts = epochs_path.stem.split("_")
-                subject = parts[0].lower()
-                prefix = "_".join(parts[:-3])
-                try:
-                    bps_path = self._find_only_file(scan_dir, f"{prefix}*.source.bps")
-                    fus_scan_path = self._find_only_file(
-                        scan_dir, f"{prefix}*fus3D.source.scan"
-                    )
-                except FileNotFoundError as e:
-                    logging.warning(str(e))
-                    continue
-                self.sessions.append(
-                    SessionMetadata(
-                        fus_scan_path=fus_scan_path,
-                        bps_path=bps_path,
-                        epochs_path=epochs_path,
-                        subject=subject,
-                        conditions=(drug,),
-                    )
-                )
+        scan_files = sorted(p.name for p in self._root_path.glob("*.source.scan"))
+        bps_files = sorted(p.name for p in self._root_path.glob("*.source.bps"))
+
+        df = pl.read_csv(session_path)
+        self.condition_names = tuple(
+            c for c in df.columns if c not in ("fus", "bps", "subject")
+        )
+
+        df = df.with_columns(
+            [
+                pl.col("fus")
+                .map_elements(lambda s: match_prefix(s, scan_files))
+                .alias("fus_file"),
+                pl.col("bps")
+                .map_elements(lambda s: match_prefix(s, bps_files))
+                .alias("bps_file"),
+            ]
+        )
+
+        df_null = df.filter(
+            pl.any_horizontal(
+                [
+                    pl.col("fus_file").is_null(),
+                    pl.col("bps_file").is_null(),
+                ]
+            )
+        )
+        for r in df_null.iter_rows(named=True):
+            if r["fus_file"].is_null():
+                logger.warning(f'fail to find scan file with prefix tag "{r["fus"]}"')
+            if r["bps_file"].is_null():
+                logger.warning(f'fail to find bps file with prefix tag "{r["bps"]}"')
+
+        self._df = df.filter(
+            pl.all_horizontal(
+                [
+                    pl.col("fus").is_not_null(),
+                    pl.col("bps").is_not_null(),
+                ]
+            )
+        )
 
     def __iter__(self) -> Iterator[Session]:
-        for s in self.sessions:
-            fus_scan = read_scan(s.fus_scan_path)
-            brain_to_lab = read_bps(s.bps_path)
-            epochs = read_epochs(s.epochs_path)
+        for r in self._df.iter_rows(named=True):
+            fus_scan = read_scan(self._root_path / r["fus_file"])
+            brain_to_lab = read_bps(self._root_path / r["bps_file"])
             yield Session(
+                id=r["fus"],
                 fus_scan=fus_scan,
                 brain_to_lab=brain_to_lab,
-                subject=s.subject,
-                epochs=epochs,
-                conditions=s.conditions,
+                subject=r["subject"],
+                conditions=tuple(r[k] for k in self.condition_names),
             )
 
     def __len__(self) -> int:
-        return len(self.sessions)
-
-    @staticmethod
-    def _find_only_file(path: Path, pattern: str) -> Path:
-        result = list(path.glob(pattern))
-
-        if len(result) == 0:
-            raise FileNotFoundError(f'"{path}" does not contain "{pattern}"')
-        if len(result) > 1:
-            logging.warning(
-                f'"{path}" contains {len(result)} of "{pattern}", first one used'
-            )
-
-        return result[0]
+        return len(self._df)
