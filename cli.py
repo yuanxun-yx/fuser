@@ -2,7 +2,9 @@ from pathlib import Path
 import tomllib
 import argparse
 import polars as pl
+from rich.logging import RichHandler
 from rich.progress import Progress
+import logging
 
 from dataset import Dataset
 from process import process_fus
@@ -10,6 +12,12 @@ from ontology import find_roi_ids
 from annotation import get_annotation
 from analyze import plot
 from progress_rich import RichProgressReporter
+
+logging.basicConfig(
+    level=logging.INFO,
+    handlers=[RichHandler()],
+)
+logger = logging.getLogger(__name__)
 
 
 def pipeline(config: dict):
@@ -44,9 +52,9 @@ def pipeline(config: dict):
                 progress_reporter=reporter,
             )
         df.write_parquet(fus_region_values_path)
-        print(f'processed fus data saved to "{fus_region_values_path}"')
+        logger.info(f'processed fus data saved to "{fus_region_values_path}"')
     else:
-        print(f"loading processed fus data from {fus_region_values_path}")
+        logger.info(f"loading processed fus data from {fus_region_values_path}")
         df = pl.read_parquet(fus_region_values_path)
 
     genotype = pl.read_csv(paths['genotype'])

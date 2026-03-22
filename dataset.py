@@ -1,11 +1,13 @@
 from pathlib import Path
 from typing import Iterator
-import warnings
+import logging
 from dataclasses import dataclass
 import numpy as np
 
 from scan import read_scan, read_bps, Scan
 from epochs import read_epochs
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -39,7 +41,7 @@ class Dataset:
             epochs_dir = drug_dir / 'eventTime'
             scan_dir = drug_dir / 'Scan'
             if not scan_dir.is_dir():
-                warnings.warn(f'scan folder "{scan_dir}" does not exist, skipping')
+                logging.warning(f'scan folder "{scan_dir}" does not exist, skipping')
                 continue
             for epochs_path in epochs_dir.glob('[!~]*.xlsx'):
                 parts = epochs_path.stem.split('_')
@@ -49,7 +51,7 @@ class Dataset:
                     bps_path = self._find_only_file(scan_dir, f'{prefix}*.source.bps')
                     fus_scan_path = self._find_only_file(scan_dir, f'{prefix}*fus3D.source.scan')
                 except FileNotFoundError as e:
-                    warnings.warn(str(e))
+                    logging.warning(str(e))
                     continue
                 self.sessions.append(
                     SessionMetadata(
@@ -84,6 +86,6 @@ class Dataset:
         if len(result) == 0:
             raise FileNotFoundError(f'"{path}" does not contain "{pattern}"')
         if len(result) > 1:
-            warnings.warn(f'"{path}" contains {len(result)} of "{pattern}", first one used')
+            logging.warning(f'"{path}" contains {len(result)} of "{pattern}", first one used')
 
         return result[0]
