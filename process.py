@@ -42,8 +42,8 @@ def bincount_axes(
     """
     apply numpy.bincount on given axes of x
     """
-    if weights is not None and x.shape != weights.shape:
-        raise ValueError(f'x {x.shape} and weights {weights.shape} shape do not match')
+    if weights is not None:
+        weights = np.broadcast_to(weights, x.shape)
 
     if axis is None:
         axis = tuple(range(x.ndim))
