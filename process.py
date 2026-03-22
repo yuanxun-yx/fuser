@@ -7,6 +7,7 @@ from scipy.ndimage import affine_transform, label, binary_fill_holes, binary_clo
 import warnings
 import json
 import nrrd
+from tqdm import tqdm
 
 from dataset import Dataset
 from download import download_allen_ontology, download_annotation_volume
@@ -86,6 +87,7 @@ def process_fus(
         voxel_percentile_thresh: float,
         valid_region_voxel_ratio: float,
         hemodynamic_lag: float,
+        show_progress: bool = True,
 ) -> pl.DataFrame:
     annotation_path = Path(annotation_path)
 
@@ -104,7 +106,7 @@ def process_fus(
 
     dfs = []
     # vectorize this in the future, size of session is ~200MB
-    for session in dataset:
+    for session in tqdm(dataset):
         fus_scan = session.fus_scan
 
         n_block_repeat = fus_scan.data.shape[2]

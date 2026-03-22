@@ -1,6 +1,5 @@
 from pathlib import Path
 from typing import Iterator
-from tqdm import tqdm
 import warnings
 from dataclasses import dataclass
 import numpy as np
@@ -42,9 +41,8 @@ class Session:
 class Dataset:
     CONDITION_NAMES = ('drug',)
 
-    def __init__(self, path: str | Path, show_progress: bool = True):
+    def __init__(self, path: str | Path):
         self.path = Path(path)
-        self.show_progress = show_progress
         self.sessions = []
 
         for drug_dir in self.path.iterdir():
@@ -81,10 +79,7 @@ class Dataset:
                 )
 
     def __iter__(self) -> Iterator[Session]:
-        it = self.sessions
-        if self.show_progress:
-            it = tqdm(it)
-        for s in it:
+        for s in self.sessions:
             fus_scan = read_scan(s.fus_scan_path)
             brain_to_lab = read_bps(s.bps_path)
             epochs = read_epochs(s.epochs_path)
@@ -103,6 +98,9 @@ class Dataset:
                 conditions=s.conditions,
                 processed=processed
             )
+
+    def __len__(self) -> int:
+        return len(self.sessions)
 
     @staticmethod
     def _find_only_file(path: Path, pattern: str) -> Path:
