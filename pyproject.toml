@@ -5,7 +5,6 @@ requires-python = ">=3.12"
 dependencies = [
     "pynrrd>=1.1",
     "matplotlib>=3.10",
-    "tqdm>=4.67",
     "openpyxl>=3.1",
     "scikit-image>=0.26",
     "requests>=2.32",
@@ -13,4 +12,5 @@ dependencies = [
     "polars[pandas]>=1.39",
     "seaborn>=0.13",
     "statannotations>=0.7",
+    "rich>=14.3",
 ]

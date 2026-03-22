@@ -4,7 +4,7 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 from statannotations.Annotator import Annotator
 from typing import Any
-from tqdm import tqdm
+from rich.progress import track
 
 
 def default_title(group: tuple[Any, ...]) -> str:
@@ -38,7 +38,7 @@ def plot(
     it = df.group_by(fig_cols)
     if show_progress:
         n = df.select(fig_cols).n_unique()
-        it = tqdm(it, total=n)
+        it = track(it, total=n, description='plotting...')
     for fig_group, fig_df in it:
         title = default_title(fig_group)
 

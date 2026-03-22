@@ -7,7 +7,7 @@ from scipy.ndimage import affine_transform, label, binary_fill_holes, binary_clo
 import warnings
 import json
 import nrrd
-from tqdm import tqdm
+from rich.progress import track
 
 from dataset import Dataset
 from download import download_allen_ontology, download_annotation_volume
@@ -106,7 +106,7 @@ def process_fus(
 
     dfs = []
     # vectorize this in the future, size of session is ~200MB
-    for session in tqdm(dataset):
+    for session in track(dataset, description='processing sessions...'):
         fus_scan = session.fus_scan
 
         n_block_repeat = fus_scan.data.shape[2]
