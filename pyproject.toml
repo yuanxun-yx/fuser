@@ -13,4 +13,5 @@ dependencies = [
     "seaborn>=0.13",
     "statannotations>=0.7",
     "rich>=14.3",
+    "nilearn>=0.13",
 ]
