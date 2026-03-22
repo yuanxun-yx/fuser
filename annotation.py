@@ -3,7 +3,7 @@ import nrrd
 import numpy as np
 
 from download import download_annotation_volume
-from utils import check_valid_transform
+from affine import check_valid_transform
 
 
 def get_annotation(annotation_path: str | Path) -> tuple[np.ndarray, np.ndarray]:

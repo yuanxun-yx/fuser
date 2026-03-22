@@ -3,7 +3,7 @@ from datetime import datetime
 import h5py
 import numpy as np
 
-from utils import check_valid_transform
+from affine import check_valid_transform
 
 
 @dataclass(frozen=True)
