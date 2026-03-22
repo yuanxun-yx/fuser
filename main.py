@@ -2,12 +2,14 @@ from pathlib import Path
 import tomllib
 import argparse
 import polars as pl
+from rich.progress import Progress
 
 from dataset import Dataset
 from process import process_fus
 from ontology import find_roi_ids
 from annotation import get_annotation
 from analyze import plot
+from progress_rich import RichProgressReporter
 
 
 def pipeline(config: dict):
@@ -23,22 +25,24 @@ def pipeline(config: dict):
 
         annotation_data, annotation_transform = get_annotation(annotation_path=paths['annotation'])
 
-        print("processing fus raw data")
         dataset = Dataset(paths['dataset'])
-        df = process_fus(
-            dataset=dataset,
-            roi_ids=roi_ids,
-            annotation_data=annotation_data,
-            annotation_transform=annotation_transform,
-            voxel_percentile_thresh=parameters['voxel_percentile_thresh'],
-            valid_region_voxel_ratio=parameters['valid_region_voxel_ratio'],
-            hemodynamic_lag=parameters['hemodynamic_lag'],
-            max_event_n=parameters['max_event_n'],
-            min_event_time=parameters['min_event_time'],
-            max_event_time=parameters['max_event_time'],
-            post_event_exclusion_window=parameters['post_event_exclusion_window'],
-            pca_n_components=parameters['pca_n_components'],
-        )
+        with Progress() as progress:
+            reporter = RichProgressReporter(progress, description='processing raw fUS scans...')
+            df = process_fus(
+                dataset=dataset,
+                roi_ids=roi_ids,
+                annotation_data=annotation_data,
+                annotation_transform=annotation_transform,
+                voxel_percentile_thresh=parameters['voxel_percentile_thresh'],
+                valid_region_voxel_ratio=parameters['valid_region_voxel_ratio'],
+                hemodynamic_lag=parameters['hemodynamic_lag'],
+                max_event_n=parameters['max_event_n'],
+                min_event_time=parameters['min_event_time'],
+                max_event_time=parameters['max_event_time'],
+                post_event_exclusion_window=parameters['post_event_exclusion_window'],
+                pca_n_components=parameters['pca_n_components'],
+                progress_reporter=reporter,
+            )
         df.write_parquet(fus_region_values_path)
         print(f'processed fus data saved to "{fus_region_values_path}"')
     else:
@@ -49,16 +53,18 @@ def pipeline(config: dict):
     df = df.join(genotype, on='subject', how='left')
 
     plots_path = Path(paths['plots'])
-    print(f'plotting, saving to "{plots_path}"')
-    plot(
-        df=df,
-        save_path=plots_path,
-        fig_cols=('drug', 'roi'),
-        x_col='epoch_condition',
-        y_col='value',
-        hue_col='genotype',
-        min_sample_n=parameters['min_sample_n'],
-    )
+    with Progress() as progress:
+        reporter = RichProgressReporter(progress, description='plotting...')
+        plot(
+            df=df,
+            save_path=plots_path,
+            fig_cols=('drug', 'roi'),
+            x_col='epoch_condition',
+            y_col='value',
+            hue_col='genotype',
+            min_sample_n=parameters['min_sample_n'],
+            progress_reporter=reporter,
+        )
 
 
 def main():

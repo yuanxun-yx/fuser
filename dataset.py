@@ -29,9 +29,8 @@ class Session:
 class Dataset:
     CONDITION_NAMES = ('drug',)
 
-    def __init__(self, path: str | Path, show_progress: bool = True) -> None:
+    def __init__(self, path: str | Path) -> None:
         self.path = Path(path)
-        self.show_progress = show_progress
         self.sessions = []
 
         for drug_dir in self.path.iterdir():

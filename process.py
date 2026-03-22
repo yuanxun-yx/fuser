@@ -1,6 +1,5 @@
 import polars as pl
 import numpy as np
-from rich.progress import track
 from nilearn.glm import compute_contrast
 from nilearn.glm.first_level import make_first_level_design_matrix, run_glm
 from numpy.linalg import svd
@@ -11,6 +10,7 @@ from dataset import Dataset
 from ontology import RoiIds
 from registration import transform
 from epochs import get_event_df, EVENT_NAME, NON_EVENT_NAME
+from progress import ProgressReporter
 
 
 def bincount_axes(
@@ -72,11 +72,14 @@ def process_fus(
         max_event_time: float,
         post_event_exclusion_window: float,
         pca_n_components: int,
-        show_progress: bool = True,
+        progress_reporter: ProgressReporter | None = None,
 ) -> pl.DataFrame:
     dfs = []
+
+    if progress_reporter is not None:
+        progress_reporter.start(len(dataset))
     # vectorize this in the future, size of session is ~200MB
-    for session in track(dataset, description='processing sessions...'):
+    for session in dataset:
         fus_scan = session.fus_scan
 
         n_block_repeat = fus_scan.data.shape[2]
@@ -95,16 +98,16 @@ def process_fus(
         # in session registration
         ref = data.mean(axis=(0, 1))
         motion = np.empty((*data.shape[:2], 3))
-        for i in range(data.shape[0]):
-            for j in range(data.shape[1]):
-                mv = data[i, j]
+        for j in range(data.shape[0]):
+            for k in range(data.shape[1]):
+                mv = data[j, k]
                 sh, *_ = phase_cross_correlation(
                     reference_image=ref,
                     moving_image=mv,
                     upsample_factor=2,
                 )
-                motion[i, j] = sh
-                data[i, j] = shift(mv, sh, order=1)
+                motion[j, k] = sh
+                data[j, k] = shift(mv, sh, order=1)
         motion = motion.reshape(-1, 3)
 
         # voxel mask: check if each 4d space point is valid
@@ -113,8 +116,8 @@ def process_fus(
         # (pose, x, y, z)
         mask = mean > threshold
         # morphology process each 3d mask
-        for i in range(mask.shape[0]):
-            s = mask[i]
+        for j in range(mask.shape[0]):
+            s = mask[j]
             labels, num = label(s)
             sizes = np.bincount(labels.ravel())
             largest_label = np.argmax(sizes[1:]) + 1
@@ -173,12 +176,12 @@ def process_fus(
         contrast[design.columns.get_loc(NON_EVENT_NAME)] = -1
 
         result = np.empty((2, *data.shape[1:]))
-        for i in range(data.shape[1]):
-            time_mask = time[:, i] <= max_time
-            y = data[:, i, ...].reshape(data.shape[0], -1)
-            labels, res = run_glm(Y=y[time_mask, :], X=x[time_mask, i, :], noise_model='ols')
+        for j in range(data.shape[1]):
+            time_mask = time[:, j] <= max_time
+            y = data[:, j, ...].reshape(data.shape[0], -1)
+            labels, res = run_glm(Y=y[time_mask, :], X=x[time_mask, j, :], noise_model='ols')
             # con = compute_contrast(labels=labels, regression_result=res, con_val=contrast, stat_type='t')
-            result[:, i, ...] = res[0].theta[:2, :].reshape((2, *data.shape[-3:]))
+            result[:, j, ...] = res[0].theta[:2, :].reshape((2, *data.shape[-3:]))
 
         beta = result
 
@@ -209,15 +212,18 @@ def process_fus(
             if valid_ratio < valid_region_voxel_ratio:
                 continue
             valid_value_mean = region_valid_value_sum[:, m].sum(axis=1) / region_valid_voxel_count[m].sum()
-            for i, k in enumerate([EVENT_NAME, NON_EVENT_NAME]):
+            for j, k in enumerate([EVENT_NAME, NON_EVENT_NAME]):
                 dfs.append({
                     'session': fus_scan.metadata.file_id,
                     'subject': session.subject,
                     **{name: cond for name, cond in zip(dataset.CONDITION_NAMES, session.conditions)},
                     'epoch_condition': k,
                     'roi': roi,
-                    'value': valid_value_mean[i],
+                    'value': valid_value_mean[j],
                 })
+
+        if progress_reporter is not None:
+            progress_reporter.advance()
 
     df = pl.DataFrame(dfs)
     return df

@@ -4,7 +4,8 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 from statannotations.Annotator import Annotator
 from typing import Any
-from rich.progress import track
+
+from progress import ProgressReporter
 
 
 def default_title(group: tuple[Any, ...]) -> str:
@@ -20,8 +21,8 @@ def plot(
         y_col: str,
         hue_col: str,
         min_sample_n: int,
-        show_progress: bool = True,
-        format: str = 'png'
+        format: str = 'png',
+        progress_reporter: ProgressReporter | None = None,
 ):
     save_path = Path(save_path)
 
@@ -35,11 +36,11 @@ def plot(
 
     save_path.mkdir(parents=True, exist_ok=True)
 
-    it = df.group_by(fig_cols)
-    if show_progress:
+    if progress_reporter is not None:
         n = df.select(fig_cols).n_unique()
-        it = track(it, total=n, description='plotting...')
-    for fig_group, fig_df in it:
+        progress_reporter.start(n)
+
+    for fig_group, fig_df in df.group_by(fig_cols):
         title = default_title(fig_group)
 
         fig, ax = plt.subplots()
@@ -86,3 +87,6 @@ def plot(
         ax.set(title=title, xlabel=None, ylabel=None)
         fig.savefig((save_path / title.replace('/', '')).with_suffix(f'.{format}'))
         plt.close(fig)
+
+        if progress_reporter is not None:
+            progress_reporter.advance()
