@@ -100,14 +100,14 @@ def process_fus(
         motion = np.empty((*data.shape[:2], 3))
         for j in range(data.shape[0]):
             for k in range(data.shape[1]):
-                mv = data[j, k]
+                mv = data[j, k, ...]
                 sh, *_ = phase_cross_correlation(
                     reference_image=ref,
                     moving_image=mv,
                     upsample_factor=2,
                 )
-                motion[j, k] = sh
-                data[j, k] = shift(mv, sh, order=1)
+                motion[j, k, :] = sh
+                data[j, k, ...] = shift(mv, sh, order=1)
         motion = motion.reshape(-1, 3)
 
         # voxel mask: check if each 4d space point is valid
@@ -117,7 +117,7 @@ def process_fus(
         mask = mean > threshold
         # morphology process each 3d mask
         for j in range(mask.shape[0]):
-            s = mask[j]
+            s = mask[j, ...]
             labels, num = label(s)
             sizes = np.bincount(labels.ravel())
             largest_label = np.argmax(sizes[1:]) + 1
