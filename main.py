@@ -4,7 +4,8 @@ import argparse
 import polars as pl
 
 from dataset import Dataset
-from process import process_fus, find_roi_ids
+from process import process_fus
+from ontology import find_roi_ids
 from analyze import plot
 
 
