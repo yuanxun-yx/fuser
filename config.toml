@@ -6,7 +6,7 @@ fus_region_values = 'fus_region_values.parquet'
 plots = 'plots'
 genotype = 'data/genotype.csv'
 roi = 'roi.txt'
-event_time = 'data/event_time.csv'
+event = 'data/event.csv'
 session = 'data/session.csv'
 
 [parameters]

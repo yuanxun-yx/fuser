@@ -38,6 +38,7 @@ def pipeline(config: dict):
         dataset = Dataset(
             root_path=paths["dataset"],
             session_path=paths["session"],
+            event_path=paths["event"],
         )
         with Progress() as progress:
             reporter = RichProgressReporter(

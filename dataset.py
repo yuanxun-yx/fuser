@@ -7,6 +7,7 @@ import polars as pl
 from bisect import bisect_left
 
 from scan import read_scan, read_bps, Scan
+from event import read_events
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +19,7 @@ class Session:
     conditions: tuple[str, ...]
     fus_scan: Scan
     brain_to_lab: np.ndarray
+    events: np.ndarray
 
 
 def match_prefix(prefix: str, files: list[str]) -> str | None:
@@ -29,7 +31,12 @@ def match_prefix(prefix: str, files: list[str]) -> str | None:
 
 class Dataset:
 
-    def __init__(self, root_path: str | Path, session_path: str | Path) -> None:
+    def __init__(
+        self,
+        root_path: str | Path,
+        session_path: str | Path,
+        event_path: str | Path,
+    ) -> None:
         self._root_path = Path(root_path)
 
         scan_files = sorted(p.name for p in self._root_path.glob("*.source.scan"))
@@ -65,7 +72,7 @@ class Dataset:
             if r["bps_file"].is_null():
                 logger.warning(f'fail to find bps file with prefix tag "{r["bps"]}"')
 
-        self._df = df.filter(
+        df = df.filter(
             pl.all_horizontal(
                 [
                     pl.col("fus").is_not_null(),
@@ -74,16 +81,23 @@ class Dataset:
             )
         )
 
+        event = read_events(event_path)
+        # temporarily use subject
+        self._df = df.join(event, on="subject", how="left")
+
     def __iter__(self) -> Iterator[Session]:
         for r in self._df.iter_rows(named=True):
             fus_scan = read_scan(self._root_path / r["fus_file"])
             brain_to_lab = read_bps(self._root_path / r["bps_file"])
+            conditions = tuple(r[k] for k in self.condition_names)
+            events = np.array(r["times"]).reshape(-1, 2)
             yield Session(
                 id=r["fus"],
                 fus_scan=fus_scan,
                 brain_to_lab=brain_to_lab,
                 subject=r["subject"],
-                conditions=tuple(r[k] for k in self.condition_names),
+                conditions=conditions,
+                events=events,
             )
 
     def __len__(self) -> int:

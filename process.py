@@ -9,7 +9,7 @@ from skimage.registration import phase_cross_correlation
 from dataset import Dataset
 from ontology import RoiIds
 from registration import transform
-from epochs import get_event_df, EVENT_NAME, NON_EVENT_NAME
+from event import get_event_df, EVENT_NAME, NON_EVENT_NAME
 from progress import ProgressReporter
 
 
@@ -153,7 +153,7 @@ def process_fus(
         # GLM: use events as X to explain fUS as y, not use fUS to predict events
 
         event_df, max_time = get_event_df(
-            epochs=session.epochs,
+            events=session.events,
             total_time=time_s[-1],
             hemodynamic_lag=hemodynamic_lag,
             max_event_n=max_event_n,
