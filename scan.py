@@ -158,7 +158,7 @@ def read_scan(file) -> Scan:
             raise ValueError(f"probe to lab axis doesn't align or scale is not 1")
 
         time = read_raw(acq_metadata_group["timeOriginal"])
-        if np.unique(time).size != time.size:
+        if acquisition_mode == "4Dscan" and np.unique(time).size != time.size:
             raise ValueError(f"found duplicate time")
         time_original_shape = (n_scan_repeat * n_pose * n_block_repeat, 1)
         if time.shape != time_original_shape:
