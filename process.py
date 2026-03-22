@@ -1,84 +1,16 @@
-from pathlib import Path
 import polars as pl
 import numpy as np
-import nrrd
 from rich.progress import track
 from nilearn.glm import compute_contrast
 from nilearn.glm.first_level import make_first_level_design_matrix, run_glm
-from numpy.linalg import inv, svd
-from scipy.ndimage import affine_transform, label, binary_fill_holes, binary_closing, shift
+from numpy.linalg import svd
+from scipy.ndimage import label, binary_fill_holes, binary_closing, shift
 from skimage.registration import phase_cross_correlation
 
 from dataset import Dataset
-from download import download_annotation_volume
-from utils import check_valid_transform
 from ontology import RoiIds
-
-# in um
-BRAIN_ORIGIN_CCFv3_COORD_POST_INF_RIGHT = (5500, 5300, 6100)
-
-# Iconeous "brain" coordinate
-# direction: left, anterior, superior (dorsal)
-# origin: approx 4mm below Bregma
-# CCFv3 axis order: posterior, inferior, right
-# 'space' in header is incorrect
-# source: https://brain-map.org/support/documentation/api-allen-brain-connectivity-atlas
-BRAIN_TO_ANNOTATION = np.zeros((4, 4))
-BRAIN_TO_ANNOTATION[3, 3] = 1
-BRAIN_TO_ANNOTATION[0, 1] = -1
-BRAIN_TO_ANNOTATION[1, 2] = -1
-BRAIN_TO_ANNOTATION[2, 0] = -1
-BRAIN_TO_ANNOTATION[:3, 3] = BRAIN_ORIGIN_CCFv3_COORD_POST_INF_RIGHT
-# magic number from Iconeous: 4mm (4000 um)
-BRAIN_TO_ANNOTATION[:3, :3] *= 4e3
-
-EVENT_NAME = 'event'
-NON_EVENT_NAME = 'non-event'
-
-
-def get_event_df(
-        epochs: np.ndarray,
-        total_time: float,
-        hemodynamic_lag: float,
-        max_event_n: int,
-        min_event_time: float,
-        max_event_time: float,
-        post_event_exclusion_window: float,
-        include_start_for_non_event: bool = False,
-) -> tuple[pl.DataFrame, float]:
-    def get_df(events: np.ndarray, type: str) -> pl.DataFrame:
-        return pl.DataFrame({
-            'onset': events[:, 0],
-            'duration': events[:, 1],
-            'trial_type': [type] * events.shape[0],
-        })
-
-    if epochs.ndim != 2 or epochs.shape[1] != 2:
-        raise ValueError(f"epochs should have shape (n,2), got {epochs.shape}")
-
-    epochs += hemodynamic_lag
-    event_n = epochs.shape[0]
-    non_event_epochs = np.empty((event_n + 1, 2), dtype=epochs.dtype)
-    non_event_epochs[0, 0] = .0
-    non_event_epochs[-1, 1] = total_time
-    non_event_epochs[1:, 0] = epochs[:, 1] + post_event_exclusion_window
-    non_event_epochs[:-1, 1] = epochs[:, 0]
-    if max_event_n >= event_n:
-        max_time = total_time
-    else:
-        max_time = epochs[max_event_n, 0]
-        epochs = epochs[:max_event_n, :]
-        non_event_epochs = non_event_epochs[:max_event_n + 1, :]
-    epochs[:, 1] -= epochs[:, 0]
-    epochs = epochs[epochs[:, 1] >= min_event_time]
-    epochs[epochs[:, 1] > max_event_time, 1] = max_event_time
-    event_df = get_df(epochs, EVENT_NAME)
-
-    non_event_epochs = non_event_epochs[int(include_start_for_non_event):, :]
-    non_event_epochs[:, 1] -= non_event_epochs[:, 0]
-    non_event_df = get_df(non_event_epochs, NON_EVENT_NAME)
-
-    return pl.concat([event_df, non_event_df]), max_time
+from registration import transform
+from epochs import get_event_df, EVENT_NAME, NON_EVENT_NAME
 
 
 def bincount_axes(
@@ -130,7 +62,8 @@ def process_fus(
         dataset: Dataset,
         *,
         roi_ids: RoiIds,
-        annotation_path: str | Path,
+        annotation_data: np.ndarray,
+        annotation_transform: np.ndarray,
         voxel_percentile_thresh: float,
         valid_region_voxel_ratio: float,
         hemodynamic_lag: float,
@@ -141,21 +74,6 @@ def process_fus(
         pca_n_components: int,
         show_progress: bool = True,
 ) -> pl.DataFrame:
-    annotation_path = Path(annotation_path)
-
-    if not annotation_path.is_file():
-        print(f'downloading annotation to "{annotation_path}"')
-        download_annotation_volume(annotation_path)
-
-    print(f'loading annotation from "{annotation_path}"')
-    annotation_data, annotation_header = nrrd.read(str(annotation_path))
-
-    annotation_transform = np.empty((4, 4))
-    annotation_transform[3, :] = (0, 0, 0, 1)
-    annotation_transform[:3, :3] = annotation_header['space directions']
-    annotation_transform[:3, 3] = annotation_header['space origin']
-    check_valid_transform(annotation_transform)
-
     dfs = []
     # vectorize this in the future, size of session is ~200MB
     for session in track(dataset, description='processing sessions...'):
@@ -264,20 +182,14 @@ def process_fus(
 
         beta = result
 
-        voxels_to_annotation_index = (
-                inv(annotation_transform) @ BRAIN_TO_ANNOTATION @ inv(session.brain_to_lab) @
-                fus_scan.acquisition.probe_to_lab @ fus_scan.acquisition.voxels_to_probe
+        voxel_annotations = transform(
+            annotation_data=annotation_data,
+            shape=data.shape[1:],
+            annotation_transform=annotation_transform,
+            brain_to_lab=session.brain_to_lab,
+            probe_to_lab=fus_scan.acquisition.probe_to_lab,
+            voxels_to_probe=fus_scan.acquisition.voxels_to_probe,
         )
-
-        # (pose, x, y, z) (no scan because only depend on pose)
-        voxel_annotations = np.empty(data.shape[1:], dtype=annotation_data.dtype)
-        for i in range(data.shape[1]):
-            voxel_annotations[i] = affine_transform(
-                annotation_data,
-                matrix=voxels_to_annotation_index[i],
-                output_shape=data.shape[-3:],
-                order=0  # nearest neighbor
-            )
 
         # convert non-consecutive region ids to 0, 1, 2, ...
         ids, inverse = np.unique(voxel_annotations, return_inverse=True)

@@ -6,6 +6,7 @@ import polars as pl
 from dataset import Dataset
 from process import process_fus
 from ontology import find_roi_ids
+from annotation import get_annotation
 from analyze import plot
 
 
@@ -20,12 +21,15 @@ def pipeline(config: dict):
             roi_path=paths['roi'],
         )
 
+        annotation_data, annotation_transform = get_annotation(annotation_path=paths['annotation'])
+
         print("processing fus raw data")
         dataset = Dataset(paths['dataset'])
         df = process_fus(
             dataset=dataset,
             roi_ids=roi_ids,
-            annotation_path=paths['annotation'],
+            annotation_data=annotation_data,
+            annotation_transform=annotation_transform,
             voxel_percentile_thresh=parameters['voxel_percentile_thresh'],
             valid_region_voxel_ratio=parameters['valid_region_voxel_ratio'],
             hemodynamic_lag=parameters['hemodynamic_lag'],
