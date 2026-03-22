@@ -30,7 +30,6 @@ def match_prefix(prefix: str, files: list[str]) -> str | None:
 
 
 class Dataset:
-
     def __init__(
         self,
         root_path: str | Path,
