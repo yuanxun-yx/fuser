@@ -29,27 +29,30 @@ class Session:
 
 
 class Dataset:
-    CONDITION_NAMES = ('drug',)
+    CONDITION_NAMES = ("drug",)
 
     def __init__(self, path: str | Path) -> None:
         self.path = Path(path)
         self.sessions = []
 
         for drug_dir in self.path.iterdir():
-            if not drug_dir.is_dir(): continue
+            if not drug_dir.is_dir():
+                continue
             drug = drug_dir.name.lower()
-            epochs_dir = drug_dir / 'eventTime'
-            scan_dir = drug_dir / 'Scan'
+            epochs_dir = drug_dir / "eventTime"
+            scan_dir = drug_dir / "Scan"
             if not scan_dir.is_dir():
                 logging.warning(f'scan folder "{scan_dir}" does not exist, skipping')
                 continue
-            for epochs_path in epochs_dir.glob('[!~]*.xlsx'):
-                parts = epochs_path.stem.split('_')
+            for epochs_path in epochs_dir.glob("[!~]*.xlsx"):
+                parts = epochs_path.stem.split("_")
                 subject = parts[0].lower()
-                prefix = '_'.join(parts[:-3])
+                prefix = "_".join(parts[:-3])
                 try:
-                    bps_path = self._find_only_file(scan_dir, f'{prefix}*.source.bps')
-                    fus_scan_path = self._find_only_file(scan_dir, f'{prefix}*fus3D.source.scan')
+                    bps_path = self._find_only_file(scan_dir, f"{prefix}*.source.bps")
+                    fus_scan_path = self._find_only_file(
+                        scan_dir, f"{prefix}*fus3D.source.scan"
+                    )
                 except FileNotFoundError as e:
                     logging.warning(str(e))
                     continue
@@ -86,6 +89,8 @@ class Dataset:
         if len(result) == 0:
             raise FileNotFoundError(f'"{path}" does not contain "{pattern}"')
         if len(result) > 1:
-            logging.warning(f'"{path}" contains {len(result)} of "{pattern}", first one used')
+            logging.warning(
+                f'"{path}" contains {len(result)} of "{pattern}", first one used'
+            )
 
         return result[0]

@@ -14,10 +14,10 @@ from progress import ProgressReporter
 
 
 def bincount_axes(
-        x: np.ndarray,
-        /,
-        axis: int | tuple[int, ...] | None = None,
-        weights: np.ndarray = None,
+    x: np.ndarray,
+    /,
+    axis: int | tuple[int, ...] | None = None,
+    weights: np.ndarray = None,
 ) -> np.ndarray:
     """
     apply numpy.bincount on given axes of x
@@ -34,8 +34,8 @@ def bincount_axes(
     dest = tuple(range(-len(axis), 0))
     x = np.moveaxis(x, axis, dest)
 
-    batch_shape = x.shape[:-len(axis)]
-    reduce_size = np.prod(x.shape[-len(axis):])
+    batch_shape = x.shape[: -len(axis)]
+    reduce_size = np.prod(x.shape[-len(axis) :])
 
     x = x.reshape(-1, reduce_size)
 
@@ -59,20 +59,20 @@ def bincount_axes(
 
 
 def process_fus(
-        dataset: Dataset,
-        *,
-        roi_ids: RoiIds,
-        annotation_data: np.ndarray,
-        annotation_transform: np.ndarray,
-        voxel_percentile_thresh: float,
-        valid_region_voxel_ratio: float,
-        hemodynamic_lag: float,
-        max_event_n: int,
-        min_event_time: float,
-        max_event_time: float,
-        post_event_exclusion_window: float,
-        pca_n_components: int,
-        progress_reporter: ProgressReporter | None = None,
+    dataset: Dataset,
+    *,
+    roi_ids: RoiIds,
+    annotation_data: np.ndarray,
+    annotation_transform: np.ndarray,
+    voxel_percentile_thresh: float,
+    valid_region_voxel_ratio: float,
+    hemodynamic_lag: float,
+    max_event_n: int,
+    min_event_time: float,
+    max_event_time: float,
+    post_event_exclusion_window: float,
+    pca_n_components: int,
+    progress_reporter: ProgressReporter | None = None,
 ) -> pl.DataFrame:
     dfs = []
 
@@ -84,7 +84,9 @@ def process_fus(
 
         n_block_repeat = fus_scan.data.shape[2]
         if n_block_repeat != 1:
-            raise NotImplementedError(f'block repeat number is {n_block_repeat}, we only handle 1 currently')
+            raise NotImplementedError(
+                f"block repeat number is {n_block_repeat}, we only handle 1 currently"
+            )
         data = fus_scan.data.squeeze(2)
         time = fus_scan.acquisition.time.squeeze(2)
 
@@ -163,10 +165,10 @@ def process_fus(
         design = make_first_level_design_matrix(
             frame_times=time_s,
             events=event_df.to_pandas(),
-            hrf_model='glover',
-            drift_model='cosine',
-            high_pass=.01,
-            add_regs=confounds
+            hrf_model="glover",
+            drift_model="cosine",
+            high_pass=0.01,
+            add_regs=confounds,
         )
         x = design.values
         x = x.reshape(*time.shape, x.shape[1])
@@ -179,7 +181,9 @@ def process_fus(
         for j in range(data.shape[1]):
             time_mask = time[:, j] <= max_time
             y = data[:, j, ...].reshape(data.shape[0], -1)
-            labels, res = run_glm(Y=y[time_mask, :], X=x[time_mask, j, :], noise_model='ols')
+            labels, res = run_glm(
+                Y=y[time_mask, :], X=x[time_mask, j, :], noise_model="ols"
+            )
             # con = compute_contrast(labels=labels, regression_result=res, con_val=contrast, stat_type='t')
             result[:, j, ...] = res[0].theta[:2, :].reshape((2, *data.shape[-3:]))
 
@@ -201,7 +205,9 @@ def process_fus(
         region_valid_voxel_count = bincount_axes(inverse, weights=mask)
         # (event, id count)
         inverse_b = np.broadcast_to(inverse, beta.shape)
-        region_valid_value_sum = bincount_axes(inverse_b, axis=tuple(range(-4, 0)), weights=mask * beta)
+        region_valid_value_sum = bincount_axes(
+            inverse_b, axis=tuple(range(-4, 0)), weights=mask * beta
+        )
 
         for roi, subtree in roi_ids.items():
             m = np.isin(ids, subtree)
@@ -211,16 +217,26 @@ def process_fus(
             valid_ratio = region_valid_voxel_count[m].sum() / roi_count
             if valid_ratio < valid_region_voxel_ratio:
                 continue
-            valid_value_mean = region_valid_value_sum[:, m].sum(axis=1) / region_valid_voxel_count[m].sum()
+            valid_value_mean = (
+                region_valid_value_sum[:, m].sum(axis=1)
+                / region_valid_voxel_count[m].sum()
+            )
             for j, k in enumerate([EVENT_NAME, NON_EVENT_NAME]):
-                dfs.append({
-                    'session': fus_scan.metadata.file_id,
-                    'subject': session.subject,
-                    **{name: cond for name, cond in zip(dataset.CONDITION_NAMES, session.conditions)},
-                    'epoch_condition': k,
-                    'roi': roi,
-                    'value': valid_value_mean[j],
-                })
+                dfs.append(
+                    {
+                        "session": fus_scan.metadata.file_id,
+                        "subject": session.subject,
+                        **{
+                            name: cond
+                            for name, cond in zip(
+                                dataset.CONDITION_NAMES, session.conditions
+                            )
+                        },
+                        "epoch_condition": k,
+                        "roi": roi,
+                        "value": valid_value_mean[j],
+                    }
+                )
 
         if progress_reporter is not None:
             progress_reporter.advance()

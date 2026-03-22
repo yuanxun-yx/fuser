@@ -22,13 +22,13 @@ BRAIN_TO_ANNOTATION[:3, :3] *= 4e3
 
 
 def transform(
-        annotation_data: np.ndarray,
-        shape: tuple[int, int, int, int],
-        *,
-        annotation_transform: np.ndarray,
-        brain_to_lab: np.ndarray,
-        probe_to_lab: np.ndarray,
-        voxels_to_probe: np.ndarray,
+    annotation_data: np.ndarray,
+    shape: tuple[int, int, int, int],
+    *,
+    annotation_transform: np.ndarray,
+    brain_to_lab: np.ndarray,
+    probe_to_lab: np.ndarray,
+    voxels_to_probe: np.ndarray,
 ):
     """
     Although upscaling the fUS data to atlas is common, we apply downscale to atlas annotations.
@@ -36,11 +36,14 @@ def transform(
     is more reliable than upscaling. Consider using soft masks when dealing with small brain regions.
     """
     if len(shape) != 4:
-        raise ValueError('length of shape must be 4')
+        raise ValueError("length of shape must be 4")
 
     voxels_to_annotation_index = (
-            inv(annotation_transform) @ BRAIN_TO_ANNOTATION @ inv(brain_to_lab) @
-            probe_to_lab @ voxels_to_probe
+        inv(annotation_transform)
+        @ BRAIN_TO_ANNOTATION
+        @ inv(brain_to_lab)
+        @ probe_to_lab
+        @ voxels_to_probe
     )
 
     # (pose, x, y, z) (no scan because only depend on pose)
@@ -50,7 +53,7 @@ def transform(
             annotation_data,
             matrix=voxels_to_annotation_index[i],
             output_shape=shape[1:],
-            order=0  # nearest neighbor
+            order=0,  # nearest neighbor
         )
 
     return voxel_annotations

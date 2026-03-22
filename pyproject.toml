@@ -15,3 +15,8 @@ dependencies = [
     "rich>=14.3",
     "nilearn>=0.13",
 ]
+
+[project.optional-dependencies]
+dev = [
+    "black"
+]
