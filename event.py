@@ -41,24 +41,25 @@ def get_event_df(
 
     events += hemodynamic_lag
     event_n = events.shape[0]
-    non_event_epochs = np.empty((event_n + 1, 2), dtype=events.dtype)
-    non_event_epochs[0, 0] = 0.0
-    non_event_epochs[-1, 1] = total_time
-    non_event_epochs[1:, 0] = events[:, 1] + post_event_exclusion_window
-    non_event_epochs[:-1, 1] = events[:, 0]
+    non_events = np.empty((event_n + 1, 2), dtype=events.dtype)
+    non_events[0, 0] = 0.0
+    non_events[-1, 1] = total_time
+    non_events[1:, 0] = events[:, 1] + post_event_exclusion_window
+    non_events[:-1, 1] = events[:, 0]
     if max_event_n >= event_n:
         max_time = total_time
     else:
         max_time = events[max_event_n, 0]
         events = events[:max_event_n, :]
-        non_event_epochs = non_event_epochs[: max_event_n + 1, :]
+        non_events = non_events[: max_event_n + 1, :]
     events[:, 1] -= events[:, 0]
     events = events[events[:, 1] >= min_event_time]
     events[events[:, 1] > max_event_time, 1] = max_event_time
     event_df = get_df(events, EVENT_NAME)
 
-    non_event_epochs = non_event_epochs[int(exclude_first_non_event) :, :]
-    non_event_epochs[:, 1] -= non_event_epochs[:, 0]
-    non_event_df = get_df(non_event_epochs, NON_EVENT_NAME)
+    non_events = non_events[int(exclude_first_non_event) :, :]
+    non_events[:, 1] -= non_events[:, 0]
+    non_events = non_events[non_events[:, 1] > 0]
+    non_event_df = get_df(non_events, NON_EVENT_NAME)
 
     return pl.concat([event_df, non_event_df]), max_time
