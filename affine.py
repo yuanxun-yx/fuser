@@ -2,8 +2,10 @@ import numpy as np
 
 
 def check_valid_transform(
-    t: np.ndarray, *, batch_shape: tuple[int, ...] = tuple()
+    t: np.ndarray, *, batch_shape: int | tuple[int, ...] = tuple()
 ) -> None:
+    if isinstance(batch_shape, int):
+        batch_shape = (batch_shape,)
     shape = (*batch_shape, 4, 4)
     if t.shape != shape:
         raise ValueError(f"transform shape should be {shape}, got {t.shape}")

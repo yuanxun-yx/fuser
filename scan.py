@@ -151,7 +151,7 @@ def read_scan(file) -> Scan:
                 f"voxel size {voxel_size} doesn't match voxels to probe transform {d}"
             )
 
-        check_valid_transform(probe_to_lab, batch_shape=(n_pose,))
+        check_valid_transform(probe_to_lab, batch_shape=n_pose)
         r = probe_to_lab[:, :3, :3]
         v = np.unique(np.abs(r))
         if v.size != 2 or not np.all(v == (0, 1)):
