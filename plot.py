@@ -8,7 +8,7 @@ from typing import Any
 from progress import ProgressReporter
 
 
-def default_title(group: tuple[Any, ...]) -> str:
+def group_to_title(group: tuple[Any, ...]) -> str:
     return "_".join([str(x) for x in group])
 
 
@@ -49,7 +49,7 @@ def plot(
         progress_reporter.start(n)
 
     for fig_group, fig_df in df.group_by(fig_cols):
-        title = default_title(fig_group)
+        title = group_to_title(fig_group)
 
         fig, ax = plt.subplots()
 

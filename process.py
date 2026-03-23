@@ -12,7 +12,7 @@ from progress import ProgressReporter
 from utils import bincount_axes
 
 
-def process_fus(
+def correlation(
     dataset: Dataset,
     *,
     roi_ids: RoiIds,

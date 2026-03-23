@@ -7,10 +7,10 @@ from rich.progress import Progress
 import logging
 
 from dataset import Dataset
-from process import process_fus
+from process import correlation
 from ontology import find_roi_ids
 from annotation import get_annotation
-from analyze import plot
+from plot import plot
 from progress_rich import RichProgressReporter
 
 logging.basicConfig(
@@ -44,7 +44,7 @@ def pipeline(config: dict):
             reporter = RichProgressReporter(
                 progress, description="processing raw fUS scans..."
             )
-            df = process_fus(
+            df = correlation(
                 dataset=dataset,
                 roi_ids=roi_ids,
                 annotation_data=annotation_data,
