@@ -26,7 +26,6 @@ def process_fus(
     min_event_time: float,
     max_event_time: float,
     post_event_exclusion_window: float,
-    pca_n_components: int,
     progress_reporter: ProgressReporter | None = None,
 ) -> pl.DataFrame:
     dfs = []
