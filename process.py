@@ -30,6 +30,7 @@ def correlation(
     progress_reporter: ProgressReporter | None = None,
 ) -> pl.DataFrame:
     dfs = []
+    event_name_all = (event_name, non_event_name)
 
     if progress_reporter is not None:
         progress_reporter.start(len(dataset))
@@ -127,7 +128,10 @@ def correlation(
         x = design.values
         x = x.reshape(*time.shape, x.shape[1])
 
-        result = np.empty((2, *data.shape[1:]))
+        event_idx = tuple(design.columns.get_loc(e) for e in event_name_all)
+
+        event_n = len(event_name_all)
+        result = np.empty((event_n, *data.shape[1:]))
         # per pose GLM is correct because data is in y not x
         for j in range(data.shape[1]):
             time_mask = time[:, j] <= max_time
@@ -135,7 +139,7 @@ def correlation(
             labels, res = run_glm(
                 Y=y[time_mask, :], X=x[time_mask, j, :], noise_model="ols"
             )
-            result[:, j, ...] = res[0].theta[:2, :].reshape((2, *data.shape[-3:]))
+            result[:, j, ...] = res[0].theta[event_idx, :].reshape((event_n, *data.shape[-3:]))
 
         beta = result
 
@@ -171,7 +175,7 @@ def correlation(
                 region_valid_value_sum[:, m].sum(axis=1)
                 / region_valid_voxel_count[m].sum()
             )
-            for j, k in enumerate((event_name, non_event_name)):
+            for j, k in enumerate(event_name_all):
                 dfs.append(
                     {
                         "session": session.id,
