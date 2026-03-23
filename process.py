@@ -172,7 +172,7 @@ def correlation(
             for j, k in enumerate((event_name, non_event_name)):
                 dfs.append(
                     {
-                        "session": fus_scan.metadata.file_id,
+                        "session": session.id,
                         "subject": session.subject,
                         **{
                             name: cond
