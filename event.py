@@ -11,13 +11,21 @@ def read_events(path: str | Path) -> pl.DataFrame:
     return df
 
 
-EVENT_NAME = "event"
-NON_EVENT_NAME = "non-event"
+def build_type_df(events: np.ndarray, trial_type: str) -> pl.DataFrame:
+    return pl.DataFrame(
+        {
+            "onset": events[:, 0],
+            "duration": events[:, 1],
+            "trial_type": [trial_type] * events.shape[0],
+        }
+    )
 
 
-def get_event_df(
+def build_event_df(
     events: np.ndarray,
     total_time: float,
+    event_name: str,
+    non_event_name: str,
     hemodynamic_lag: float,
     max_event_n: int,
     min_event_time: float,
@@ -25,14 +33,6 @@ def get_event_df(
     post_event_exclusion_window: float,
     exclude_first_non_event: bool = True,
 ) -> tuple[pl.DataFrame, float]:
-    def get_df(events: np.ndarray, type: str) -> pl.DataFrame:
-        return pl.DataFrame(
-            {
-                "onset": events[:, 0],
-                "duration": events[:, 1],
-                "trial_type": [type] * events.shape[0],
-            }
-        )
 
     if events.ndim != 2 or events.shape[1] != 2:
         raise ValueError(f"epochs should have shape (n,2), got {events.shape}")
@@ -55,11 +55,11 @@ def get_event_df(
     events[:, 1] -= events[:, 0]
     events = events[events[:, 1] >= min_event_time]
     events[events[:, 1] > max_event_time, 1] = max_event_time
-    event_df = get_df(events, EVENT_NAME)
+    event_df = build_type_df(events, event_name)
 
     non_events = non_events[int(exclude_first_non_event) :, :]
     non_events[:, 1] -= non_events[:, 0]
     non_events = non_events[non_events[:, 1] > 0]
-    non_event_df = get_df(non_events, NON_EVENT_NAME)
+    non_event_df = build_type_df(non_events, non_event_name)
 
     return pl.concat([event_df, non_event_df]), max_time

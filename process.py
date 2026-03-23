@@ -1,6 +1,5 @@
 import polars as pl
 import numpy as np
-from nilearn.glm import compute_contrast
 from nilearn.glm.first_level import make_first_level_design_matrix, run_glm
 from scipy.ndimage import label, binary_fill_holes, binary_closing, shift
 from skimage.registration import phase_cross_correlation
@@ -8,7 +7,7 @@ from skimage.registration import phase_cross_correlation
 from dataset import Dataset
 from ontology import RoiIds
 from registration import transform
-from event import get_event_df, EVENT_NAME, NON_EVENT_NAME
+from event import build_event_df
 from progress import ProgressReporter
 from utils import bincount_axes
 
@@ -26,6 +25,8 @@ def process_fus(
     min_event_time: float,
     max_event_time: float,
     post_event_exclusion_window: float,
+    event_name: str,
+    non_event_name: str,
     progress_reporter: ProgressReporter | None = None,
 ) -> pl.DataFrame:
     dfs = []
@@ -103,7 +104,7 @@ def process_fus(
 
         # GLM: use events as X to explain fUS as y, not use fUS to predict events
 
-        event_df, max_time = get_event_df(
+        event_df, max_time = build_event_df(
             events=session.events,
             total_time=time_s[-1],
             hemodynamic_lag=hemodynamic_lag,
@@ -124,10 +125,6 @@ def process_fus(
         x = design.values
         x = x.reshape(*time.shape, x.shape[1])
 
-        contrast = np.zeros(x.shape[-1])
-        contrast[design.columns.get_loc(EVENT_NAME)] = 1
-        contrast[design.columns.get_loc(NON_EVENT_NAME)] = -1
-
         result = np.empty((2, *data.shape[1:]))
         # per pose GLM is correct because data is in y not x
         for j in range(data.shape[1]):
@@ -136,7 +133,6 @@ def process_fus(
             labels, res = run_glm(
                 Y=y[time_mask, :], X=x[time_mask, j, :], noise_model="ols"
             )
-            # con = compute_contrast(labels=labels, regression_result=res, con_val=contrast, stat_type='t')
             result[:, j, ...] = res[0].theta[:2, :].reshape((2, *data.shape[-3:]))
 
         beta = result
@@ -173,7 +169,7 @@ def process_fus(
                 region_valid_value_sum[:, m].sum(axis=1)
                 / region_valid_voxel_count[m].sum()
             )
-            for j, k in enumerate([EVENT_NAME, NON_EVENT_NAME]):
+            for j, k in enumerate((event_name, non_event_name)):
                 dfs.append(
                     {
                         "session": fus_scan.metadata.file_id,
