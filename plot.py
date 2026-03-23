@@ -19,28 +19,37 @@ def plot(
     fig_cols: tuple[str, ...],
     x_col: str,
     y_col: str,
-    hue_col: str,
+    hue_col: str | None = None,
     min_sample_n: int,
     format: str = "png",
     progress_reporter: ProgressReporter | None = None,
 ):
     save_path = Path(save_path)
 
-    hue_vals = df[hue_col].unique()
-    if hue_vals.len() != 2:
+    if hue_col is None:
+        test_col = x_col
+        test_var = "x"
+        count_group = (*fig_cols, x_col)
+    else:
+        test_col = hue_col
+        test_var = "hue"
+        count_group = (*fig_cols, x_col, hue_col)
+
+    test_vals = df[test_col].unique()
+    if test_vals.len() != 2:
         raise ValueError(
-            "column selected for legend in figure should have only 2 groups for hypothesis testing"
+            f"column selected for {test_var} in figure should have only 2 groups for hypothesis testing"
         )
 
     n_df = (
-        df.group_by(fig_cols + (x_col, hue_col))
+        df.group_by(count_group)
         .agg(pl.count())
-        .pivot(hue_col, values=pl.count().meta.output_name())
+        .pivot(test_col, values=pl.count().meta.output_name())
     )
     n_df = n_df.filter(
-        (pl.col(hue_vals[0]) >= min_sample_n) & (pl.col(hue_vals[1]) >= min_sample_n)
+        (pl.col(test_vals[0]) >= min_sample_n) & (pl.col(test_vals[1]) >= min_sample_n)
     )
-    df = df.join(n_df, on=fig_cols + (x_col,), how="semi")
+    df = df.join(n_df, on=count_group[:-1], how="semi")
 
     save_path.mkdir(parents=True, exist_ok=True)
 
@@ -67,7 +76,10 @@ def plot(
         sns.stripplot(jitter=True, dodge=True, **plot_params)  # horizontal jitter
 
         # significance annotation
-        pairs = [tuple((x, h) for h in hue_vals) for x in fig_df[x_col].unique()]
+        if hue_col is None:
+            pairs = [tuple(test_vals)]
+        else:
+            pairs = [tuple((x, h) for h in test_vals) for x in fig_df[x_col].unique()]
         # statannotations only compatible with pandas (utils.get_x_values())
         plot_params["data"] = fig_df.to_pandas()
         annotator = Annotator(pairs=pairs, **plot_params)
