@@ -28,6 +28,6 @@ def download_allen_ontology(file_name: str | Path, structure_id: int) -> None:
         r.raise_for_status()
         content = json.loads(r.content)
         if not content["success"]:
-            raise RuntimeError(f"ontology download failed")
+            raise RuntimeError("ontology download failed")
         with open(file_name, "w") as f:
             json.dump(content["msg"][0], f)

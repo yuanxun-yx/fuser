@@ -14,5 +14,5 @@ def check_valid_transform(
     r = t[..., :3, :3]
     if np.any(np.linalg.matrix_rank(r) < 3):
         raise ValueError(
-            f"rotation determinant transform is singular and not invertible"
+            "rotation determinant transform is singular and not invertible"
         )

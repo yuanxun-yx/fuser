@@ -29,7 +29,7 @@ def plot(
     hue_vals = df[hue_col].unique()
     if hue_vals.len() != 2:
         raise ValueError(
-            f"column selected for legend in figure should have only 2 groups for hypothesis testing"
+            "column selected for legend in figure should have only 2 groups for hypothesis testing"
         )
 
     n_df = (
