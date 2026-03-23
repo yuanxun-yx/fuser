@@ -112,6 +112,8 @@ def correlation(
             min_event_time=min_event_time,
             max_event_time=max_event_time,
             post_event_exclusion_window=post_event_exclusion_window,
+            event_name=event_name,
+            non_event_name=non_event_name,
         )
 
         design = make_first_level_design_matrix(
