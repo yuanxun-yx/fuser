@@ -23,7 +23,7 @@ def get_event_df(
     min_event_time: float,
     max_event_time: float,
     post_event_exclusion_window: float,
-    include_start_for_non_event: bool = False,
+    exclude_first_non_event: bool = True,
 ) -> tuple[pl.DataFrame, float]:
     def get_df(events: np.ndarray, type: str) -> pl.DataFrame:
         return pl.DataFrame(
@@ -57,7 +57,7 @@ def get_event_df(
     events[events[:, 1] > max_event_time, 1] = max_event_time
     event_df = get_df(events, EVENT_NAME)
 
-    non_event_epochs = non_event_epochs[int(include_start_for_non_event) :, :]
+    non_event_epochs = non_event_epochs[int(exclude_first_non_event) :, :]
     non_event_epochs[:, 1] -= non_event_epochs[:, 0]
     non_event_df = get_df(non_event_epochs, NON_EVENT_NAME)
 
