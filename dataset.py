@@ -8,6 +8,7 @@ from bisect import bisect_left
 
 from scan import read_scan, read_bps, Scan
 from event import read_events
+from schema import check_pk
 
 logger = logging.getLogger(__name__)
 
@@ -15,8 +16,6 @@ logger = logging.getLogger(__name__)
 @dataclass(frozen=True)
 class Session:
     id: str
-    subject: str
-    conditions: tuple[str, ...]
     fus_scan: Scan
     brain_to_lab: np.ndarray
     events: np.ndarray
@@ -42,9 +41,7 @@ class Dataset:
         bps_files = sorted(p.name for p in self._root_path.glob("*.source.bps"))
 
         df = pl.read_csv(session_path)
-        self.condition_names = tuple(
-            c for c in df.columns if c not in ("fus", "bps", "subject")
-        )
+        check_pk(df, "fus")
 
         df = df.with_columns(
             [
@@ -81,6 +78,7 @@ class Dataset:
         )
 
         event = read_events(event_path)
+        check_pk(event, "subject")
         # temporarily use subject
         df = df.join(event, on="subject", how="left")
         df_null = df.filter(
@@ -96,14 +94,11 @@ class Dataset:
         for r in self._df.iter_rows(named=True):
             fus_scan = read_scan(self._root_path / r["fus_file"])
             brain_to_lab = read_bps(self._root_path / r["bps_file"])
-            conditions = tuple(r[k] for k in self.condition_names)
             events = np.array(r["times"]).reshape(-1, 2) - r["start"]
             yield Session(
                 id=r["fus"],
                 fus_scan=fus_scan,
                 brain_to_lab=brain_to_lab,
-                subject=r["subject"],
-                conditions=conditions,
                 events=events,
             )
 

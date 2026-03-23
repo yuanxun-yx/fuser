@@ -175,14 +175,7 @@ def correlation(
                 dfs.append(
                     {
                         "session": session.id,
-                        "subject": session.subject,
-                        **{
-                            name: cond
-                            for name, cond in zip(
-                                dataset.condition_names, session.conditions
-                            )
-                        },
-                        "epoch_condition": k,
+                        "event": k,
                         "roi": roi,
                         "value": valid_value_mean[j],
                     }

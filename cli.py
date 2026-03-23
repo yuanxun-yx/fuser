@@ -12,6 +12,7 @@ from ontology import find_roi_ids
 from annotation import get_annotation
 from plot import plot
 from progress_rich import RichProgressReporter
+from schema import check_pk
 
 logging.basicConfig(
     level=logging.INFO,
@@ -56,8 +57,8 @@ def pipeline(config: dict):
                 min_event_time=parameters["min_event_time"],
                 max_event_time=parameters["max_event_time"],
                 post_event_exclusion_window=parameters["post_event_exclusion_window"],
-                event_name='social',
-                non_event_name='non-social',
+                event_name="social",
+                non_event_name="non-social",
                 progress_reporter=reporter,
             )
         df.write_parquet(fus_region_values_path)
@@ -66,7 +67,15 @@ def pipeline(config: dict):
         logger.info(f'loading processed fus data from "{fus_region_values_path}"')
         df = pl.read_parquet(fus_region_values_path)
 
+    check_pk(df, ("session", "event", "roi"))
+
+    # fetch additional information for sessions
+    session = pl.read_csv(paths["session"])
+    check_pk(session, "fus")
+    df = df.join(session, left_on="session", right_on="fus", how="left")
+
     genotype = pl.read_csv(paths["genotype"])
+    check_pk(genotype, "subject")
     df = df.join(genotype, on="subject", how="left")
 
     plots_path = Path(paths["plots"])
@@ -76,7 +85,7 @@ def pipeline(config: dict):
             df=df,
             save_path=plots_path,
             fig_cols=("drug", "roi"),
-            x_col="epoch_condition",
+            x_col="event",
             y_col="value",
             hue_col="genotype",
             min_sample_n=parameters["min_sample_n"],
