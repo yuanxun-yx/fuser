@@ -56,16 +56,16 @@ def correlation(
         # in session registration
         ref = data.mean(axis=(0, 1))
         motion = np.empty((*data.shape[:2], 3))
-        for j in range(data.shape[0]):
-            for k in range(data.shape[1]):
-                mv = data[j, k, ...]
+        for i in range(data.shape[0]):
+            for j in range(data.shape[1]):
+                mv = data[i, j, ...]
                 sh, *_ = phase_cross_correlation(
                     reference_image=ref,
                     moving_image=mv,
                     upsample_factor=2,
                 )
-                motion[j, k, :] = sh
-                data[j, k, ...] = shift(mv, sh, order=1)
+                motion[i, j, :] = sh
+                data[i, j, ...] = shift(mv, sh, order=1)
         motion = motion.reshape(-1, 3)
         # remove axes with all zeros
         motion = motion[:, ~np.all(motion == 0, axis=0)]
@@ -78,15 +78,15 @@ def correlation(
         # (pose, x, y, z)
         mask = mean > threshold
         # morphology process each 3d mask
-        for j in range(mask.shape[0]):
-            s = mask[j, ...]
+        for i in range(mask.shape[0]):
+            s = mask[i, ...]
             labels, num = label(s)
             sizes = np.bincount(labels.ravel())
             largest_label = np.argmax(sizes[1:]) + 1
             body_mask = labels == largest_label
             # ignore scan direction because it has much smaller size
-            for k in range(body_mask.shape[1]):
-                s[:, k, :] = binary_closing(binary_fill_holes(body_mask[:, k, :]))
+            for j in range(body_mask.shape[1]):
+                s[:, j, :] = binary_closing(binary_fill_holes(body_mask[:, j, :]))
 
         # flatten & sort time axes
         time_r = time.ravel()
@@ -133,13 +133,13 @@ def correlation(
         event_n = len(event_name_all)
         result = np.empty((event_n, *data.shape[1:]))
         # per pose GLM is correct because data is in y not x
-        for j in range(data.shape[1]):
-            time_mask = time[:, j] <= max_time
-            y = data[:, j, ...].reshape(data.shape[0], -1)
+        for i in range(data.shape[1]):
+            time_mask = time[:, i] <= max_time
+            y = data[:, i, ...].reshape(data.shape[0], -1)
             labels, res = run_glm(
-                Y=y[time_mask, :], X=x[time_mask, j, :], noise_model="ols"
+                Y=y[time_mask, :], X=x[time_mask, i, :], noise_model="ols"
             )
-            result[:, j, ...] = res[0].theta[event_idx, :].reshape((event_n, *data.shape[-3:]))
+            result[:, i, ...] = res[0].theta[event_idx, :].reshape((event_n, *data.shape[-3:]))
 
         beta = result
 
@@ -175,13 +175,13 @@ def correlation(
                 region_valid_value_sum[:, m].sum(axis=1)
                 / region_valid_voxel_count[m].sum()
             )
-            for j, k in enumerate(event_name_all):
+            for i, e in enumerate(event_name_all):
                 dfs.append(
                     {
                         "session": session.id,
-                        "event": k,
+                        "event": e,
                         "roi": roi,
-                        "value": valid_value_mean[j],
+                        "value": valid_value_mean[i],
                     }
                 )
 
