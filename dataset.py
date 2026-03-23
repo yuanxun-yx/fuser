@@ -74,8 +74,8 @@ class Dataset:
         df = df.filter(
             pl.all_horizontal(
                 [
-                    pl.col("fus").is_not_null(),
-                    pl.col("bps").is_not_null(),
+                    pl.col("fus_file").is_not_null(),
+                    pl.col("bps_file").is_not_null(),
                 ]
             )
         )
