@@ -82,7 +82,15 @@ class Dataset:
 
         event = read_events(event_path)
         # temporarily use subject
-        self._df = df.join(event, on="subject", how="left")
+        df = df.join(event, on="subject", how="left")
+        df_null = df.filter(
+            pl.col("times").is_null(),
+        )
+        for r in df_null.iter_rows(named=True):
+            logger.warning(f'no event times for fus scan "{r["fus"]}"')
+        self._df = df.filter(
+            pl.col("times").is_not_null(),
+        )
 
     def __iter__(self) -> Iterator[Session]:
         for r in self._df.iter_rows(named=True):
