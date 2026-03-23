@@ -94,7 +94,7 @@ class Dataset:
         for r in self._df.iter_rows(named=True):
             fus_scan = read_scan(self._root_path / r["fus_file"])
             brain_to_lab = read_bps(self._root_path / r["bps_file"])
-            events = np.array(r["times"]).reshape(-1, 2) - r["start"]
+            events = np.array(r["times"]).reshape(-1, 2)
             yield Session(
                 id=r["fus"],
                 fus_scan=fus_scan,
