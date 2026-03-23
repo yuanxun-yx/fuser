@@ -2,7 +2,6 @@ import polars as pl
 import numpy as np
 from nilearn.glm import compute_contrast
 from nilearn.glm.first_level import make_first_level_design_matrix, run_glm
-from numpy.linalg import svd
 from scipy.ndimage import label, binary_fill_holes, binary_closing, shift
 from skimage.registration import phase_cross_correlation
 
@@ -67,6 +66,10 @@ def process_fus(
                 motion[j, k, :] = sh
                 data[j, k, ...] = shift(mv, sh, order=1)
         motion = motion.reshape(-1, 3)
+        # remove axes with all zeros
+        motion = motion[:, ~np.all(motion == 0, axis=0)]
+        # z-score motion to prevent ill condition
+        motion = (motion - motion.mean(axis=0)) / motion.std(axis=0)
 
         # voxel mask: check if each 4d space point is valid
         mean = data.mean(axis=0)
@@ -84,26 +87,19 @@ def process_fus(
             for k in range(body_mask.shape[1]):
                 s[:, k, :] = binary_closing(binary_fill_holes(body_mask[:, k, :]))
 
-        # preprocess: z-score
-        mean = mean[None, ...]
-        std = np.std(data, axis=0, keepdims=True)
-        # avoid 0/0 = NaN
-        data = np.where(std > 0, (data - mean) / std, 0)
-
         # flatten & sort time axes
         time_r = time.ravel()
         idx = np.argsort(time_r)
         time_s = time_r[idx]
 
         # nuisance
-        local_signal = np.mean(data, axis=(-3, -2, -1))
-        local_signal = local_signal.reshape(-1, 1)
+        # per pose global signal
+        global_signal_pose = np.mean(data, axis=(-3, -2, -1))
+        global_signal_pose = global_signal_pose.reshape(-1, 1)
+        # center global signal to prevent co-linear with intercept
+        global_signal_pose -= global_signal_pose.mean()
 
-        data_f = data.reshape(data.shape[0] * data.shape[1], -1)
-        u, *_ = svd(data_f, full_matrices=False)
-        pca = u[:, :pca_n_components]
-
-        confounds = np.concatenate([motion, local_signal, pca], axis=1)
+        confounds = np.concatenate([motion, global_signal_pose], axis=1)
         confounds = confounds[idx, :]
 
         # GLM: use events as X to explain fUS as y, not use fUS to predict events
@@ -134,6 +130,7 @@ def process_fus(
         contrast[design.columns.get_loc(NON_EVENT_NAME)] = -1
 
         result = np.empty((2, *data.shape[1:]))
+        # per pose GLM is correct because data is in y not x
         for j in range(data.shape[1]):
             time_mask = time[:, j] <= max_time
             y = data[:, j, ...].reshape(data.shape[0], -1)
