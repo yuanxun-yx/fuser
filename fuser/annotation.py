@@ -12,12 +12,14 @@ logger = logging.getLogger(__name__)
 FILENAME = "annotation.nrrd"
 
 
-def load_annotation(path: str | Path | None = None) -> tuple[np.ndarray, np.ndarray]:
+def load_annotation(
+    ccf_version: int = 2022, resolution: int = 10, path: str | Path | None = None
+) -> tuple[np.ndarray, np.ndarray]:
     path = Path(path) if path else get_cache_dir() / FILENAME
 
     if not path.is_file():
         logger.info(f'downloading annotation to "{path}"')
-        download_annotation_volume(path)
+        download_annotation_volume(path, ccf_version=ccf_version, resolution=resolution)
 
     logger.info(f'loading annotation from "{path}"')
     annotation_data, annotation_header = nrrd.read(str(path))

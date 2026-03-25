@@ -1,13 +1,13 @@
 import requests
 import json
 from pathlib import Path
-from typing import Literal
 
 
 def download_annotation_volume(
     file_name: str | Path,
-    ccf_version: Literal[2015, 2016, 2017, 2022] = 2022,
-    resolution: Literal[10, 25, 50, 100] = 10,
+    *,
+    ccf_version: int,
+    resolution: int,
 ) -> None:
     file_name = Path(file_name)
     url = (
