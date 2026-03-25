@@ -26,9 +26,12 @@ def pipeline(config: dict):
 
     fus_region_values_path = Path(paths["fus_region_values"])
     if not fus_region_values_path.is_file():
+        with open(paths["roi"], "r") as f:
+            rois = [l for l in f.read().splitlines() if l]
+
         roi_ids = find_roi_ids(
+            rois=rois,
             ontology_path=paths["ontology"],
-            roi_path=paths["roi"],
         )
 
         annotation_data, annotation_transform = get_annotation(

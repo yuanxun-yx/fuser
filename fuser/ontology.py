@@ -25,14 +25,10 @@ def find_subtree(root: dict[str, Any]) -> RoiIds:
 
 
 def find_roi_ids(
+    rois: list[str],
     ontology_path: str | Path,
-    roi_path: str | Path,
 ) -> RoiIds:
     ontology_path = Path(ontology_path)
-    roi_path = Path(roi_path)
-
-    with open(roi_path, "r") as f:
-        rois = set(l for l in f.read().splitlines() if l)
 
     if not ontology_path.is_file():
         download_allen_ontology(ontology_path, 1)  # adult mouse
@@ -41,6 +37,8 @@ def find_roi_ids(
         ontology = json.load(f)
 
     subtree = find_subtree(ontology)
+
+    rois = set(rois)
 
     valid_rois = []
     invalid_rois = []
