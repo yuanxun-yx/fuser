@@ -1,13 +1,11 @@
 from pathlib import Path
 from typing import Any
-import logging
+import warnings
 import json
 
 from .download import download_allen_ontology
 
 type RoiIds = dict[str, list[int]]
-
-logger = logging.getLogger(__name__)
 
 
 def find_subtree(root: dict[str, Any]) -> RoiIds:
@@ -50,7 +48,7 @@ def find_roi_ids(
             invalid_rois.append(r)
 
     if invalid_rois:
-        logging.warning(f"{invalid_rois} are not found in structure tree")
+        warnings.warn(f"{invalid_rois} are not found in structure tree")
 
     roi_ids = {k: subtree[k] for k in valid_rois}
 
