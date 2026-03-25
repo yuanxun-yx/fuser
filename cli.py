@@ -6,7 +6,7 @@ from rich.logging import RichHandler
 from rich.progress import Progress
 import logging
 
-from fuser import find_roi_ids, get_annotation, plot
+from fuser import find_roi_ids, load_annotation, plot
 
 from dataset import Dataset
 from process import correlation
@@ -29,14 +29,9 @@ def pipeline(config: dict):
         with open(paths["roi"], "r") as f:
             rois = [l for l in f.read().splitlines() if l]
 
-        roi_ids = find_roi_ids(
-            rois=rois,
-            ontology_path=paths["ontology"],
-        )
+        roi_ids = find_roi_ids(rois)
 
-        annotation_data, annotation_transform = get_annotation(
-            annotation_path=paths["annotation"]
-        )
+        annotation_data, annotation_transform = load_annotation()
 
         dataset = Dataset(
             root_path=paths["dataset"],

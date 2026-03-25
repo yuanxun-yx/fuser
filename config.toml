@@ -1,7 +1,5 @@
 [paths]
 dataset = 'data'
-annotation = 'annotation.nrrd'
-ontology = 'ontology.json'
 fus_region_values = 'fus_region_values.parquet'
 plots = 'plots'
 genotype = 'data/genotype.csv'

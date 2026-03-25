@@ -3,25 +3,28 @@ import nrrd
 import numpy as np
 import logging
 
+from .paths import get_cache_dir
 from .download import download_annotation_volume
 from .affine import check_valid_transform
 
 logger = logging.getLogger(__name__)
 
+FILENAME = "annotation.nrrd"
 
-def get_annotation(annotation_path: str | Path) -> tuple[np.ndarray, np.ndarray]:
-    annotation_path = Path(annotation_path)
 
-    if not annotation_path.is_file():
-        logger.info(f'downloading annotation to "{annotation_path}"')
-        download_annotation_volume(annotation_path)
+def load_annotation(path: str | Path | None = None) -> tuple[np.ndarray, np.ndarray]:
+    path = Path(path) if path else get_cache_dir() / FILENAME
 
-    logger.info(f'loading annotation from "{annotation_path}"')
-    annotation_data, annotation_header = nrrd.read(str(annotation_path))
+    if not path.is_file():
+        logger.info(f'downloading annotation to "{path}"')
+        download_annotation_volume(path)
+
+    logger.info(f'loading annotation from "{path}"')
+    annotation_data, annotation_header = nrrd.read(str(path))
 
     if not np.all(annotation_header["sizes"] == annotation_data.shape):
         raise ValueError(
-            f'"{annotation_path}" header shape {annotation_header["sizes"]} '
+            f'"{path}" header shape {annotation_header["sizes"]} '
             f"does not match data shape {annotation_data.shape}"
         )
 

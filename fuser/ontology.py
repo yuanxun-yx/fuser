@@ -2,10 +2,16 @@ from pathlib import Path
 from typing import Any
 import warnings
 import json
+import logging
 
 from .download import download_allen_ontology
+from .paths import get_cache_dir
 
 type RoiIds = dict[str, list[int]]
+
+logger = logging.getLogger(__name__)
+
+FILENAME = "ontology.json"
 
 
 def find_subtree(root: dict[str, Any]) -> RoiIds:
@@ -24,14 +30,17 @@ def find_subtree(root: dict[str, Any]) -> RoiIds:
 
 def find_roi_ids(
     rois: list[str],
-    ontology_path: str | Path,
+    *,
+    path: str | Path | None = None,
 ) -> RoiIds:
-    ontology_path = Path(ontology_path)
+    path = Path(path) if path else get_cache_dir() / FILENAME
 
-    if not ontology_path.is_file():
-        download_allen_ontology(ontology_path, 1)  # adult mouse
+    if not path.is_file():
+        logger.info(f'downloading ontology to "{path}"')
+        download_allen_ontology(path, 1)  # adult mouse
 
-    with open(ontology_path, "r") as f:
+    logger.info(f'loading ontology from "{path}"')
+    with open(path, "r") as f:
         ontology = json.load(f)
 
     subtree = find_subtree(ontology)
