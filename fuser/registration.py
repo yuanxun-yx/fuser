@@ -1,6 +1,7 @@
 import numpy as np
 from numpy.linalg import inv
-from scipy.ndimage import affine_transform
+from scipy.ndimage import affine_transform, shift
+from skimage.registration import phase_cross_correlation
 
 # in um
 BRAIN_ORIGIN_CCFv3_COORD_POST_INF_RIGHT = (5500, 5300, 6100)
@@ -21,7 +22,7 @@ BRAIN_TO_ANNOTATION[:3, 3] = BRAIN_ORIGIN_CCFv3_COORD_POST_INF_RIGHT
 BRAIN_TO_ANNOTATION[:3, :3] *= 4e3
 
 
-def transform(
+def register_atlas_to_fus(
     annotation_data: np.ndarray,
     shape: tuple[int, int, int, int],
     *,
@@ -57,3 +58,21 @@ def transform(
         )
 
     return voxel_annotations
+
+
+def motion_correct(data: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    res = np.empty_like(data)
+    ref = data.mean(axis=(0, 1))
+    motion = np.empty((*data.shape[:2], 3))
+    for i in range(data.shape[0]):
+        for j in range(data.shape[1]):
+            mv = data[i, j, ...]
+            sh, *_ = phase_cross_correlation(
+                reference_image=ref,
+                moving_image=mv,
+                upsample_factor=2,
+            )
+            motion[i, j, :] = sh
+            res[i, j, ...] = shift(mv, sh, order=1)
+    motion = motion.reshape(-1, 3)
+    return res, motion

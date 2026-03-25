@@ -1,10 +1,9 @@
 import polars as pl
 import numpy as np
 from nilearn.glm.first_level import make_first_level_design_matrix, run_glm
-from scipy.ndimage import label, binary_fill_holes, binary_closing, shift
-from skimage.registration import phase_cross_correlation
+from scipy.ndimage import label, binary_fill_holes, binary_closing
 
-from fuser import RoiIds, transform, ProgressReporter, bincount_axes
+from fuser import RoiIds, register_atlas_to_fus, ProgressReporter, bincount_axes, motion_correct
 
 from dataset import Dataset
 from event import build_event_df
@@ -52,19 +51,7 @@ def correlation(
         # pose determines both time and space, therefore we cannot simply decouple data to (T, N)
 
         # in session registration
-        ref = data.mean(axis=(0, 1))
-        motion = np.empty((*data.shape[:2], 3))
-        for i in range(data.shape[0]):
-            for j in range(data.shape[1]):
-                mv = data[i, j, ...]
-                sh, *_ = phase_cross_correlation(
-                    reference_image=ref,
-                    moving_image=mv,
-                    upsample_factor=2,
-                )
-                motion[i, j, :] = sh
-                data[i, j, ...] = shift(mv, sh, order=1)
-        motion = motion.reshape(-1, 3)
+        data, motion = motion_correct(data)
         # remove axes with all zeros
         motion = motion[:, ~np.all(motion == 0, axis=0)]
         # z-score motion to prevent ill condition
@@ -143,7 +130,7 @@ def correlation(
 
         beta = result
 
-        voxel_annotations = transform(
+        voxel_annotations = register_atlas_to_fus(
             annotation_data=annotation_data,
             shape=data.shape[1:],
             annotation_transform=annotation_transform,
