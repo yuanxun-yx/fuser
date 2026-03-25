@@ -1,9 +1,15 @@
 import polars as pl
 import numpy as np
 from nilearn.glm.first_level import make_first_level_design_matrix, run_glm
-from scipy.ndimage import label, binary_fill_holes, binary_closing
 
-from fuser import RoiIds, register_atlas_to_fus, ProgressReporter, bincount_axes, motion_correct
+from fuser import (
+    RoiIds,
+    register_atlas_to_fus,
+    ProgressReporter,
+    bincount_axes,
+    motion_correct,
+    compute_valid_mask,
+)
 
 from dataset import Dataset
 from event import build_event_df
@@ -58,20 +64,7 @@ def correlation(
         motion = (motion - motion.mean(axis=0)) / motion.std(axis=0)
 
         # voxel mask: check if each 4d space point is valid
-        mean = data.mean(axis=0)
-        threshold = np.percentile(mean, voxel_percentile_thresh)
-        # (pose, x, y, z)
-        mask = mean > threshold
-        # morphology process each 3d mask
-        for i in range(mask.shape[0]):
-            s = mask[i, ...]
-            labels, num = label(s)
-            sizes = np.bincount(labels.ravel())
-            largest_label = np.argmax(sizes[1:]) + 1
-            body_mask = labels == largest_label
-            # ignore scan direction because it has much smaller size
-            for j in range(body_mask.shape[1]):
-                s[:, j, :] = binary_closing(binary_fill_holes(body_mask[:, j, :]))
+        mask = compute_valid_mask(data, thresh=voxel_percentile_thresh)
 
         # flatten & sort time axes
         time_r = time.ravel()

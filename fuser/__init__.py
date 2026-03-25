@@ -5,3 +5,4 @@ from .registration import register_atlas_to_fus, motion_correct
 from .scan import read_scan, read_bps, Scan
 from .progress import ProgressReporter
 from .utils import bincount_axes
+from .mask import compute_valid_mask
