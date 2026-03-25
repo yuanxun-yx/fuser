@@ -3,8 +3,8 @@ import nrrd
 import numpy as np
 import logging
 
-from download import download_annotation_volume
-from affine import check_valid_transform
+from .download import download_annotation_volume
+from .affine import check_valid_transform
 
 logger = logging.getLogger(__name__)
 

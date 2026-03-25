@@ -6,11 +6,10 @@ from rich.logging import RichHandler
 from rich.progress import Progress
 import logging
 
+from fuser import find_roi_ids, get_annotation, plot
+
 from dataset import Dataset
 from process import correlation
-from ontology import find_roi_ids
-from annotation import get_annotation
-from plot import plot
 from progress_rich import RichProgressReporter
 from schema import check_pk
 

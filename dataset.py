@@ -6,7 +6,8 @@ import numpy as np
 import polars as pl
 from bisect import bisect_left
 
-from scan import read_scan, read_bps, Scan
+from fuser import read_scan, read_bps, Scan
+
 from event import read_events
 from schema import check_pk
 

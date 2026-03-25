@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 from statannotations.Annotator import Annotator
 from typing import Any
 
-from progress import ProgressReporter
+from .progress import ProgressReporter
 
 
 def group_to_title(group: tuple[Any, ...]) -> str:

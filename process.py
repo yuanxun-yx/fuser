@@ -4,12 +4,10 @@ from nilearn.glm.first_level import make_first_level_design_matrix, run_glm
 from scipy.ndimage import label, binary_fill_holes, binary_closing, shift
 from skimage.registration import phase_cross_correlation
 
+from fuser import RoiIds, transform, ProgressReporter, bincount_axes
+
 from dataset import Dataset
-from ontology import RoiIds
-from registration import transform
 from event import build_event_df
-from progress import ProgressReporter
-from utils import bincount_axes
 
 
 def correlation(
@@ -121,8 +119,8 @@ def correlation(
             frame_times=time_s,
             events=event_df.to_pandas(),
             hrf_model="glover",
-            drift_model="cosine",
-            high_pass=0.01,
+            drift_model="polynomial",
+            drift_order=1,
             add_regs=confounds,
         )
         x = design.values
@@ -139,7 +137,9 @@ def correlation(
             labels, res = run_glm(
                 Y=y[time_mask, :], X=x[time_mask, i, :], noise_model="ols"
             )
-            result[:, i, ...] = res[0].theta[event_idx, :].reshape((event_n, *data.shape[-3:]))
+            result[:, i, ...] = (
+                res[0].theta[event_idx, :].reshape((event_n, *data.shape[-3:]))
+            )
 
         beta = result
 

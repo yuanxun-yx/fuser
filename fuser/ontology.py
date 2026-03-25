@@ -3,7 +3,7 @@ from typing import Any
 import logging
 import json
 
-from download import download_allen_ontology
+from .download import download_allen_ontology
 
 type RoiIds = dict[str, list[int]]
 
