@@ -6,7 +6,7 @@ from fuser import (
     RoiIds,
     register_atlas_to_fus,
     ProgressReporter,
-    bincount_axes,
+    aggregate_to_roi,
     motion_correct,
     compute_valid_mask,
 )
@@ -130,41 +130,32 @@ def correlation(
             voxels_to_probe=fus_scan.acquisition.voxels_to_probe,
         )
 
-        # convert non-consecutive region ids to 0, 1, 2, ...
-        ids, inverse = np.unique(voxel_annotations, return_inverse=True)
-        # (id count,)
-        region_voxel_count = bincount_axes(inverse)
-        region_valid_voxel_count = bincount_axes(inverse, weights=mask)
-        # (event, id count)
-        inverse_b = np.broadcast_to(inverse, beta.shape)
-        region_valid_value_sum = bincount_axes(
-            inverse_b, axis=tuple(range(-4, 0)), weights=mask * beta
+        roi_aggregate = aggregate_to_roi(
+            beta,
+            annotation=voxel_annotations,
+            mask=mask,
+            roi_ids=roi_ids.values(),
+            thresh=valid_region_voxel_ratio,
         )
 
-        for roi, subtree in roi_ids.items():
-            m = np.isin(ids, subtree)
-            roi_count = region_voxel_count[m].sum()
-            if roi_count == 0:
-                continue
-            valid_ratio = region_valid_voxel_count[m].sum() / roi_count
-            if valid_ratio < valid_region_voxel_ratio:
-                continue
-            valid_value_mean = (
-                region_valid_value_sum[:, m].sum(axis=1)
-                / region_valid_voxel_count[m].sum()
-            )
-            for i, e in enumerate(event_name_all):
-                dfs.append(
+        roi_mask = ~np.isnan(roi_aggregate[0])
+        rois = np.array(list(roi_ids.keys()))[roi_mask]
+        n = roi_mask.sum()
+
+        for e, arr in zip(event_name_all, roi_aggregate):
+            dfs.append(
+                pl.DataFrame(
                     {
-                        "session": session.id,
-                        "event": e,
-                        "roi": roi,
-                        "value": valid_value_mean[i],
+                        "session": [session.id] * n,
+                        "event": [e] * n,
+                        "roi": rois,
+                        "value": arr[roi_mask],
                     }
                 )
+            )
 
         if progress_reporter is not None:
             progress_reporter.advance()
 
-    df = pl.DataFrame(dfs)
+    df = pl.concat(dfs)
     return df
