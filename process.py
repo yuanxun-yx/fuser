@@ -58,6 +58,7 @@ def correlation(
 
         # in session registration
         data, motion = motion_correct(data)
+        motion = motion.reshape(-1, 3)
         # remove axes with all zeros
         motion = motion[:, ~np.all(motion == 0, axis=0)]
         # z-score motion to prevent ill condition

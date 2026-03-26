@@ -74,5 +74,4 @@ def motion_correct(data: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
             )
             motion[i, j, :] = sh
             res[i, j, ...] = shift(mv, sh, order=1)
-    motion = motion.reshape(-1, 3)
     return res, motion
