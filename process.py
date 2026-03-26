@@ -70,6 +70,8 @@ def correlation(
         # flatten & sort time axes
         time_r = time.ravel()
         idx = np.argsort(time_r)
+        inverse_idx = np.empty_like(idx)
+        inverse_idx[idx] = np.arange(idx.size)
         time_s = time_r[idx]
 
         # nuisance
@@ -105,6 +107,7 @@ def correlation(
             add_regs=confounds,
         )
         x = design.values
+        x = x[inverse_idx]
         x = x.reshape(*time.shape, x.shape[1])
 
         event_idx = tuple(design.columns.get_loc(e) for e in event_name_all)
