@@ -58,13 +58,23 @@ def read_str(ds: h5py.Dataset) -> str:
     raise TypeError(f"type {type(raw)} cannot be converted to string")
 
 
+DATETIME_FORMAT = ["%Y-%m-%d %H:%M %S", "%Y-%m-%d %H:%M:%S"]
+
+
+def parse_datetime(s: str) -> datetime:
+    for fmt in DATETIME_FORMAT:
+        try:
+            return datetime.strptime(s, fmt)
+        except ValueError:
+            continue
+    raise ValueError(f"unknown datetime format {s}")
+
+
 def read_metadata(f: h5py.File) -> Metadata:
     file_id = bytes.fromhex(read_str(f["fileID"]))
 
     scan_metadata_group = f["scanMetaData"]
-    date_time = datetime.strptime(
-        read_str(scan_metadata_group["Date"]), "%Y-%m-%d %H:%M %S"
-    )
+    date_time = parse_datetime(read_str(scan_metadata_group["Date"]))
     neuroscan_version_str = read_str(scan_metadata_group["Neuroscan_version"])
     neuroscan_version = tuple(
         int(n) for n in neuroscan_version_str.split(" ")[-1].split(".")
