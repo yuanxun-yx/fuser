@@ -19,6 +19,8 @@ dependencies = [
 authors = [
     { name = "Xun Yuan", email = "yuanxun2000@outlook.com" },
 ]
+license = "MIT"
+license-files = ["LICEN[CS]E*"]
 
 [project.optional-dependencies]
 dev = [
