@@ -40,14 +40,8 @@ def correlation(
     # vectorize this in the future, size of session is ~200MB
     for session in dataset:
         fus_scan = session.fus_scan
-
-        n_block_repeat = fus_scan.data.shape[2]
-        if n_block_repeat != 1:
-            raise NotImplementedError(
-                f"block repeat number is {n_block_repeat}, we only handle 1 currently"
-            )
-        data = fus_scan.data.squeeze(2)
-        time = fus_scan.acquisition.time.squeeze(2)
+        data = fus_scan.data
+        time = fus_scan.acquisition.time
 
         # we don't use nilearn.first_level directly because data structure is not usual 4d array
         # the problem with fUS data is that time and space axes are coupled

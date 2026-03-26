@@ -137,6 +137,9 @@ def read_scan(file) -> Scan:
             raise ValueError(
                 f"data shape {data.shape} doesn't match given img dim {img_dim}"
             )
+        if n_block_repeat != 1:
+            raise NotImplementedError(f"block repeat number {n_block_repeat} is not supported yet")
+        data = data.squeeze(2)
 
         # x, y, z for 3D slice
         data = data.swapaxes(-3, -1)
@@ -175,7 +178,7 @@ def read_scan(file) -> Scan:
             raise ValueError(
                 f"time origin has shape {time.shape}, should be {time_original_shape}"
             )
-        time = time.reshape(img_dim[:-3])
+        time = time.reshape(data.shape[:-3])
 
     acquisition = Acquisition(
         mode=acquisition_mode,
