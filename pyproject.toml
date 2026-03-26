@@ -1,6 +1,10 @@
+[build-system]
+requires = ["hatchling >= 1.26"]
+build-backend = "hatchling.build"
+
 [project]
-name = "fus-process"
-version = "0.0.0"
+name = "fuser"
+version = "0.1.0"
 requires-python = ">=3.12"
 dependencies = [
     "pynrrd>=1.1",
@@ -8,11 +12,12 @@ dependencies = [
     "scikit-image>=0.26",
     "requests>=2.32",
     "h5py>=3.16",
-    "polars[pandas]>=1.39",
     "seaborn>=0.13",
     "statannotations>=0.7",
-    "rich>=14.3",
     "platformdirs>=4.9",
+]
+authors = [
+    { name = "Xun Yuan", email = "yuanxun2000@outlook.com" },
 ]
 
 [project.optional-dependencies]
