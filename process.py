@@ -1,17 +1,13 @@
 import polars as pl
 import numpy as np
-from numpy.linalg import lstsq
 
 from fuser import (
     RoiIds,
     register_atlas_to_fus,
     ProgressReporter,
     aggregate_to_roi,
-    motion_correct,
     compute_valid_mask,
-    make_drift,
-    make_event,
-    glm_fit,
+    run_glm,
 )
 
 from dataset import Dataset
@@ -46,67 +42,24 @@ def correlation(
         data = fus_scan.data
         time = fus_scan.acquisition.time
 
-        # we don't use nilearn.first_level directly because data structure is not usual 4d array
-        # the problem with fUS data is that time and space axes are coupled
-        # data: (scan, pose, x, y, z)
-        # time: (scan, pose)
-        # space: (pose, x, y, z)
-        # pose determines both time and space, therefore we cannot simply decouple data to (T, N)
-
-        # flatten & sort time axes
-        time_r = time.ravel()
-        idx = np.argsort(time_r)
-        inverse_idx = np.empty_like(idx)
-        inverse_idx[idx] = np.arange(idx.size)
-        time_s = time_r[idx]
-
-        # in session registration
-        data, motion = motion_correct(data)
-        # left last axis only
-        axis = tuple(range(motion.ndim - 1))
-        # remove axes (xyz) with all zeros
-        motion = motion[..., ~np.all(motion == 0, axis=axis)]
-        # z-score motion to prevent ill condition
-        motion = (motion - motion.mean(axis=axis)) / motion.std(axis=axis)
-
-        # nuisance
-        # per pose global signal
-        global_signal = np.mean(data, axis=(-3, -2, -1))
-        # center global signal to prevent co-linear with intercept
-        global_signal -= global_signal.mean()
-
-        drift = make_drift(time_s, model="cosine", high_pass=0.005)
-
         events, non_events, max_time = event_intervals(
             events=session.events,
-            total_time=time_s[-1],
+            total_time=time.max(),
             max_event_n=max_event_n,
             min_event_time=min_event_time,
             max_event_time=max_event_time,
             post_event_exclusion_window=post_event_exclusion_window,
         )
 
-        regressors = []
-        for e in events, non_events:
-            e = make_event(e, time_s, hemodynamic_lag=hemodynamic_lag)
-            e = e.reshape(-1, 1)
-            regressors.append(e)
-
-        regressors.append(drift)
-
-        regressors = np.concatenate(regressors, axis=-1)
-        regressors = regressors[inverse_idx, :]
-        regressors = regressors.reshape(*time.shape, regressors.shape[-1])
-        regressors = np.concatenate(
-            [regressors, motion, global_signal[..., None], np.ones((*time.shape, 1))],
-            axis=-1,
+        beta = run_glm(
+            data=data,
+            time=time,
+            events=[events, non_events],
+            hemodynamic_lag=hemodynamic_lag,
+            drift_model="cosine",
+            high_pass=0.005,
+            max_time=max_time,
         )
-
-        beta = glm_fit(
-            fus=data,
-            regressors=regressors,
-            time_mask=time <= max_time,
-        )[:2, ...]
 
         voxel_annotations = register_atlas_to_fus(
             annotation_data=annotation_data,
