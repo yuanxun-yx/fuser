@@ -9,7 +9,7 @@ from fuser import (
     aggregate_to_roi,
     motion_correct,
     compute_valid_mask,
-    cosine_drift,
+    make_drift,
     make_event,
 )
 
@@ -74,11 +74,7 @@ def correlation(
         # center global signal to prevent co-linear with intercept
         global_signal -= global_signal.mean()
 
-        diff = np.diff(time_s)
-        dt = diff.mean()
-        if not np.allclose(diff, dt):
-            raise ValueError("dt is not constant")
-        drift = cosine_drift(time_s.size, dt, high_pass=0.005)
+        drift = make_drift(time_s, model="cosine", high_pass=0.005)
 
         events, non_events, max_time = event_intervals(
             events=session.events,

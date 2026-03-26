@@ -6,5 +6,5 @@ from .scan import read_scan, read_bps, Scan
 from .progress import ProgressReporter
 from .mask import compute_valid_mask
 from .roi import aggregate_to_roi
-from .drift import cosine_drift
+from .drift import make_drift
 from .event import make_event
