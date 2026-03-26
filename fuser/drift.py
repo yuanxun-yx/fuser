@@ -4,6 +4,7 @@ import numpy as np
 def cosine_drift(
     n_time: int,
     dt: float,
+    *,
     high_pass: float,
 ) -> np.ndarray:
     if n_time <= 0:

@@ -1,6 +1,6 @@
 import polars as pl
 import numpy as np
-from nilearn.glm.first_level import make_first_level_design_matrix, run_glm
+from numpy.linalg import lstsq
 
 from fuser import (
     RoiIds,
@@ -9,10 +9,12 @@ from fuser import (
     aggregate_to_roi,
     motion_correct,
     compute_valid_mask,
+    cosine_drift,
+    make_event,
 )
 
 from dataset import Dataset
-from event import build_event_df
+from event import event_intervals
 
 
 def correlation(
@@ -50,17 +52,6 @@ def correlation(
         # space: (pose, x, y, z)
         # pose determines both time and space, therefore we cannot simply decouple data to (T, N)
 
-        # in session registration
-        data, motion = motion_correct(data)
-        motion = motion.reshape(-1, 3)
-        # remove axes with all zeros
-        motion = motion[:, ~np.all(motion == 0, axis=0)]
-        # z-score motion to prevent ill condition
-        motion = (motion - motion.mean(axis=0)) / motion.std(axis=0)
-
-        # voxel mask: check if each 4d space point is valid
-        mask = compute_valid_mask(data, thresh=voxel_percentile_thresh)
-
         # flatten & sort time axes
         time_r = time.ravel()
         idx = np.argsort(time_r)
@@ -68,56 +59,61 @@ def correlation(
         inverse_idx[idx] = np.arange(idx.size)
         time_s = time_r[idx]
 
+        # in session registration
+        data, motion = motion_correct(data)
+        # left last axis only
+        axis = tuple(range(motion.ndim - 1))
+        # remove axes (xyz) with all zeros
+        motion = motion[..., ~np.all(motion == 0, axis=axis)]
+        # z-score motion to prevent ill condition
+        motion = (motion - motion.mean(axis=axis)) / motion.std(axis=axis)
+
         # nuisance
         # per pose global signal
-        global_signal_pose = np.mean(data, axis=(-3, -2, -1))
-        global_signal_pose = global_signal_pose.reshape(-1, 1)
+        global_signal = np.mean(data, axis=(-3, -2, -1))
         # center global signal to prevent co-linear with intercept
-        global_signal_pose -= global_signal_pose.mean()
+        global_signal -= global_signal.mean()
 
-        confounds = np.concatenate([motion, global_signal_pose], axis=1)
-        confounds = confounds[idx, :]
+        diff = np.diff(time_s)
+        dt = diff.mean()
+        if not np.allclose(diff, dt):
+            raise ValueError("dt is not constant")
+        drift = cosine_drift(time_s.size, dt, high_pass=0.005)
 
-        # GLM: use events as X to explain fUS as y, not use fUS to predict events
-
-        event_df, max_time = build_event_df(
+        events, non_events, max_time = event_intervals(
             events=session.events,
             total_time=time_s[-1],
-            hemodynamic_lag=hemodynamic_lag,
             max_event_n=max_event_n,
             min_event_time=min_event_time,
             max_event_time=max_event_time,
             post_event_exclusion_window=post_event_exclusion_window,
-            event_name=event_name,
-            non_event_name=non_event_name,
         )
 
-        design = make_first_level_design_matrix(
-            frame_times=time_s,
-            events=event_df.to_pandas(),
-            hrf_model="glover",
-            drift_model="polynomial",
-            drift_order=1,
-            add_regs=confounds,
+        regressors = []
+        for e in events, non_events:
+            e = make_event(e, time_s, hemodynamic_lag=hemodynamic_lag)
+            e = e.reshape(-1, 1)
+            regressors.append(e)
+
+        regressors.append(drift)
+
+        regressors = np.concatenate(regressors, axis=-1)
+        regressors = regressors[inverse_idx, :]
+        regressors = regressors.reshape(*time.shape, regressors.shape[-1])
+        regressors = np.concatenate(
+            [regressors, motion, global_signal[..., None], np.ones((*time.shape, 1))], axis=-1
         )
-        x = design.values
-        x = x[inverse_idx]
-        x = x.reshape(*time.shape, x.shape[1])
 
-        event_idx = tuple(design.columns.get_loc(e) for e in event_name_all)
+        # GLM: use events as X to explain fUS as y, not use fUS to predict events
 
-        event_n = len(event_name_all)
-        result = np.empty((event_n, *data.shape[1:]))
+        result = np.empty((2, *data.shape[1:]))
+        # do it per pose because each pose has different time slices
         # per pose GLM is correct because data is in y not x
         for i in range(data.shape[1]):
             time_mask = time[:, i] <= max_time
             y = data[:, i, ...].reshape(data.shape[0], -1)
-            labels, res = run_glm(
-                Y=y[time_mask, :], X=x[time_mask, i, :], noise_model="ols"
-            )
-            result[:, i, ...] = (
-                res[0].theta[event_idx, :].reshape((event_n, *data.shape[-3:]))
-            )
+            solution, *_ = lstsq(regressors[time_mask, i, :], y[time_mask, :])
+            result[:, i, ...] = solution[:2, :].reshape(2, *data.shape[-3:])
 
         beta = result
 
@@ -129,6 +125,9 @@ def correlation(
             probe_to_lab=fus_scan.acquisition.probe_to_lab,
             voxels_to_probe=fus_scan.acquisition.voxels_to_probe,
         )
+
+        # voxel mask: check if each 4d space point is valid
+        mask = compute_valid_mask(data, thresh=voxel_percentile_thresh)
 
         roi_aggregate = aggregate_to_roi(
             beta,
