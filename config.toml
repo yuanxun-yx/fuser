@@ -1,18 +1,36 @@
-[paths]
-dataset = 'data'
-fus_region_values = 'fus_region_values.parquet'
-plots = 'plots'
+[paths.dataset]
+root = 'data'
 genotype = 'data/genotype.csv'
-roi = 'roi.txt'
 event = 'data/event.csv'
 session = 'data/session.csv'
 
-[parameters]
-voxel_percentile_thresh = 50
-valid_region_voxel_ratio = 0.8
-min_sample_n = 5
-hemodynamic_lag = 2.0
+[paths.input]
+roi = 'roi.txt'
+
+[paths.output]
+plots = 'plots'
+
+[paths.cache]
+fus_region_values = 'fus_region_values.parquet'
+
+[event]
 max_event_n = 7
 min_event_time = 3.0
 max_event_time = 20.0
 post_event_exclusion_window = 5.0
+
+[mask]
+thresh = 50
+
+[roi]
+thresh = 0.8
+
+[glm.event]
+hemodynamic_lag = 2.0
+
+[glm.drift]
+mode = 'cosine'
+high_pass = 0.005
+
+[stat-test]
+min_sample_n = 5
