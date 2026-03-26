@@ -8,3 +8,4 @@ from .mask import compute_valid_mask
 from .roi import aggregate_to_roi
 from .drift import make_drift
 from .event import make_event
+from .glm import glm_fit

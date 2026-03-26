@@ -11,6 +11,7 @@ from fuser import (
     compute_valid_mask,
     make_drift,
     make_event,
+    glm_fit,
 )
 
 from dataset import Dataset
@@ -97,21 +98,15 @@ def correlation(
         regressors = regressors[inverse_idx, :]
         regressors = regressors.reshape(*time.shape, regressors.shape[-1])
         regressors = np.concatenate(
-            [regressors, motion, global_signal[..., None], np.ones((*time.shape, 1))], axis=-1
+            [regressors, motion, global_signal[..., None], np.ones((*time.shape, 1))],
+            axis=-1,
         )
 
-        # GLM: use events as X to explain fUS as y, not use fUS to predict events
-
-        result = np.empty((2, *data.shape[1:]))
-        # do it per pose because each pose has different time slices
-        # per pose GLM is correct because data is in y not x
-        for i in range(data.shape[1]):
-            time_mask = time[:, i] <= max_time
-            y = data[:, i, ...].reshape(data.shape[0], -1)
-            solution, *_ = lstsq(regressors[time_mask, i, :], y[time_mask, :])
-            result[:, i, ...] = solution[:2, :].reshape(2, *data.shape[-3:])
-
-        beta = result
+        beta = glm_fit(
+            fus=data,
+            regressors=regressors,
+            time_mask=time <= max_time,
+        )[:2, ...]
 
         voxel_annotations = register_atlas_to_fus(
             annotation_data=annotation_data,
