@@ -12,6 +12,7 @@ dependencies = [
     "scikit-image>=0.26",
     "requests>=2.32",
     "h5py>=3.16",
+    "polars[pandas]>=1.39",
     "seaborn>=0.13",
     "statannotations>=0.7",
     "platformdirs>=4.9",
