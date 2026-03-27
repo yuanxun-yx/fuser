@@ -20,6 +20,7 @@ dependencies = [
 authors = [
     { name = "Xun Yuan", email = "yuanxun2000@outlook.com" },
 ]
+readme = "README.md"
 license = "MIT"
 license-files = ["LICEN[CS]E*"]
 
