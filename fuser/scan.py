@@ -30,7 +30,6 @@ class Acquisition:
     voxels_to_probe: np.ndarray
     probe_to_lab: np.ndarray
     time: np.ndarray
-    dt: float
 
 
 @dataclass(frozen=True)
@@ -138,7 +137,9 @@ def read_scan(file) -> Scan:
                 f"data shape {data.shape} doesn't match given img dim {img_dim}"
             )
         if n_block_repeat != 1:
-            raise NotImplementedError(f"block repeat number {n_block_repeat} is not supported yet")
+            raise NotImplementedError(
+                f"block repeat number {n_block_repeat} is not supported yet"
+            )
         data = data.squeeze(2)
 
         # x, y, z for 3D slice
@@ -148,11 +149,11 @@ def read_scan(file) -> Scan:
         probe_to_lab = read_raw(acq_metadata_group["probeToLab"])
 
         voxel_dim_group = acq_metadata_group["voxDim"]
-        dt = read_raw(voxel_dim_group["dt"])
         dx = read_raw(voxel_dim_group["dx"])
         dy = read_raw(voxel_dim_group["dy"])
         dz = read_raw(voxel_dim_group["dz"])
         voxel_size = (dx, dy, dz)
+        # dt provided is not correct
 
         check_valid_transform(voxels_to_probe)
         r = voxels_to_probe[:3, :3]
@@ -173,6 +174,10 @@ def read_scan(file) -> Scan:
         time = read_raw(acq_metadata_group["timeOriginal"])
         if acquisition_mode == "4Dscan" and np.unique(time).size != time.size:
             raise ValueError("found duplicate time")
+        time_diff = np.diff(np.sort(time.ravel()))
+        dt = time_diff.mean()
+        if not np.allclose(dt, time_diff):
+            raise ValueError("dt is not equal")
         time_original_shape = (n_scan_repeat * n_pose * n_block_repeat, 1)
         if time.shape != time_original_shape:
             raise ValueError(
@@ -186,7 +191,6 @@ def read_scan(file) -> Scan:
         voxels_to_probe=voxels_to_probe,
         probe_to_lab=probe_to_lab,
         time=time,
-        dt=dt,
     )
 
     return Scan(
