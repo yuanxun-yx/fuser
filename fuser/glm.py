@@ -76,15 +76,13 @@ def run_glm(
     global_signal -= global_signal.mean()
 
     regressors = []
-
-    if drift_model is not None:
-        drift = make_drift(time_s, model=drift_model, high_pass=high_pass)
-        regressors.append(drift)
-
     for e in events:
         e = make_event(e, time_s, hemodynamic_lag=hemodynamic_lag)
         e = e.reshape(-1, 1)
         regressors.append(e)
+    if drift_model is not None:
+        drift = make_drift(time_s, model=drift_model, high_pass=high_pass)
+        regressors.append(drift)
     regressors = np.concatenate(regressors, axis=-1)
     regressors = regressors[inverse_idx, :]
     regressors = regressors.reshape(*time.shape, regressors.shape[-1])
