@@ -12,7 +12,7 @@ def group_to_title(group: tuple[Any, ...]) -> str:
     return "_".join([str(x) for x in group])
 
 
-def plot(
+def stripboxplot(
     df: pl.DataFrame,
     save_path: str | Path,
     *,
