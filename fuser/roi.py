@@ -1,59 +1,54 @@
 import numpy as np
+from collections.abc import Collection
 
-from .utils import bincount_axes
+from .array import bincount_axes, sum_by_membership, shared_axes
 
 
-def aggregate_to_roi(
-    data: np.ndarray,
-    *,
-    annotation: np.ndarray,
-    mask: np.ndarray,
-    roi_ids: list[list[int]],
-    thresh: float,
-) -> np.ndarray:
-    """
-    data: (..., pose, x, y, z)
-    annotation, mask: (pose, x, y, z)
-    roi_aggregate: (..., roi)
-    """
+class RoiAggregator:
+    def __init__(
+        self,
+        annotation: np.ndarray,
+        mask: np.ndarray,
+        roi_ids: Collection[Collection[int]],
+        *,
+        thresh: float,
+    ):
+        if annotation.shape != mask.shape:
+            raise ValueError(
+                f"annotation shape {annotation.shape} does not match mask shape {mask.shape}"
+            )
+        self._annotation = annotation
+        self._mask = mask
 
-    if data.ndim < 4:
-        raise ValueError(f"data shape {data.shape} must have at least 4 dimensions (..., pose, x, y, z)")
+        # convert non-consecutive region ids to 0, 1, 2, ...
+        self._ids, self._inverse = np.unique(annotation, return_inverse=True)
 
-    shape = data.shape[-4:]
-    if annotation.shape != shape:
-        raise ValueError(
-            f"annotation shape {annotation.shape} does not match data shape {shape}"
+        self._id_voxel_count = bincount_axes(self._inverse)
+        self._id_valid_voxel_count = bincount_axes(self._inverse, weights=self._mask)
+
+        self._roi_id_mask = np.empty((len(roi_ids), len(self._ids)), dtype=bool)
+        for i, subtree in enumerate(roi_ids):
+            self._roi_id_mask[i, :] = np.isin(self._ids, subtree)
+
+        roi_voxel_count = sum_by_membership(self._id_voxel_count, self._roi_id_mask)
+        self._roi_masked_voxel_count = sum_by_membership(
+            self._id_valid_voxel_count, self._roi_id_mask
         )
-    if mask.shape != shape:
-        raise ValueError(f"mask shape {mask.shape} does not match data shape {shape}")
+        roi_masked_ratio = self._roi_masked_voxel_count / roi_voxel_count
 
-    roi_aggregate = np.full(
-        (*data.shape[:-4], len(roi_ids)), fill_value=np.nan, dtype=data.dtype
-    )
+        self._valid_roi_mask = roi_masked_ratio >= thresh
 
-    # convert non-consecutive region ids to 0, 1, 2, ...
-    ids, inverse = np.unique(annotation, return_inverse=True)
-    # (roi,)
-    region_voxel_count = bincount_axes(inverse)
-    region_valid_voxel_count = bincount_axes(inverse, weights=mask)
+    @property
+    def valid_roi_mask(self) -> np.ndarray:
+        return self._valid_roi_mask
 
-    inverse_b = np.broadcast_to(inverse, data.shape)
-    # (..., roi)
-    region_valid_value_sum = bincount_axes(
-        inverse_b, axis=(-4, -3, -2, -1), weights=mask * data
-    )
+    def aggregate(self, data: np.ndarray) -> np.ndarray:
 
-    for i, subtree in enumerate(roi_ids):
-        m = np.isin(ids, subtree)
-        roi_count = region_voxel_count[m].sum()
-        if roi_count == 0:
-            continue
-        valid_ratio = region_valid_voxel_count[m].sum() / roi_count
-        if valid_ratio < thresh:
-            continue
-        roi_aggregate[..., i] = (
-            region_valid_value_sum[:, m].sum(axis=1) / region_valid_voxel_count[m].sum()
+        inverse_b = np.broadcast_to(self._inverse, data.shape)
+        axis = shared_axes(self._inverse.shape, data.shape)
+        id_masked_data_sum = bincount_axes(
+            inverse_b, axis=axis, weights=self._mask * data
         )
-
-    return roi_aggregate
+        roi_masked_data_sum = sum_by_membership(id_masked_data_sum, self._roi_id_mask)
+        roi_masked_data_mean = roi_masked_data_sum / self._roi_masked_voxel_count
+        return roi_masked_data_mean[..., self._valid_roi_mask]

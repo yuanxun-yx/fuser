@@ -44,3 +44,18 @@ def bincount_axes(
     counts = counts.reshape(*batch_shape, k)
 
     return counts
+
+
+def sum_by_membership(
+    values: np.ndarray,
+    mask: np.ndarray,
+) -> np.ndarray:
+    return (values[..., None, :] * mask).sum(axis=-1)
+
+
+def shared_axes(a, b):
+    ndim = max(len(a), len(b))
+    a = (1,) * (ndim - len(a)) + a
+    b = (1,) * (ndim - len(b)) + b
+
+    return [i for i, (x, y) in enumerate(zip(a, b)) if x == y]
