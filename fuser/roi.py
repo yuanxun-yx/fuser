@@ -34,7 +34,8 @@ class RoiAggregator:
         self._roi_masked_voxel_count = sum_by_membership(
             self._id_valid_voxel_count, self._roi_id_mask
         )
-        roi_masked_ratio = self._roi_masked_voxel_count / roi_voxel_count
+        with np.errstate(invalid="ignore"):
+            roi_masked_ratio = self._roi_masked_voxel_count / roi_voxel_count
 
         self._valid_roi_mask = roi_masked_ratio >= thresh
 
@@ -50,5 +51,6 @@ class RoiAggregator:
             inverse_b, axis=axis, weights=self._mask * data
         )
         roi_masked_data_sum = sum_by_membership(id_masked_data_sum, self._roi_id_mask)
-        roi_masked_data_mean = roi_masked_data_sum / self._roi_masked_voxel_count
+        with np.errstate(invalid="ignore"):
+            roi_masked_data_mean = roi_masked_data_sum / self._roi_masked_voxel_count
         return roi_masked_data_mean[..., self._valid_roi_mask]
