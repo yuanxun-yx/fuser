@@ -39,6 +39,7 @@ def run_glm(
     time: np.ndarray,
     events: list[np.ndarray],
     *,
+    motion: np.ndarray = None,
     hemodynamic_lag: float,
     drift_model: str | None = None,
     high_pass: float | None = None,
@@ -60,14 +61,17 @@ def run_glm(
     inverse_idx[idx] = np.arange(idx.size)
     time_s = time_r[idx]
 
-    # in session registration
-    data, motion = motion_correct(data)
-    # left last axis only
-    axis = tuple(range(motion.ndim - 1))
-    # remove axes (xyz) with all zeros
-    motion = motion[..., ~np.all(motion == 0, axis=axis)]
-    # z-score motion to prevent ill condition
-    motion = (motion - motion.mean(axis=axis)) / motion.std(axis=axis)
+    if motion is not None:
+        if motion.shape[-1] != 3:
+            raise ValueError(
+                f"size of last dimension of motion should be 3, got {motion.shape[-1]}"
+            )
+        # left last axis only
+        axis = tuple(range(motion.ndim - 1))
+        # remove axes (xyz) with all zeros
+        motion = motion[..., ~np.all(motion == 0, axis=axis)]
+        # z-score motion to prevent ill condition
+        motion = (motion - motion.mean(axis=axis)) / motion.std(axis=axis)
 
     # nuisance
     # per pose global signal
@@ -87,10 +91,10 @@ def run_glm(
     regressors = regressors[inverse_idx, :]
     regressors = regressors.reshape(*time.shape, regressors.shape[-1])
 
-    regressors = np.concatenate(
-        [regressors, motion, global_signal[..., None], np.ones((*time.shape, 1))],
-        axis=-1,
-    )
+    regressors = [regressors, global_signal[..., None], np.ones((*time.shape, 1))]
+    if motion is not None:
+        regressors.append(motion)
+    regressors = np.concatenate(regressors, axis=-1)
 
     if max_time is None:
         mask = None
