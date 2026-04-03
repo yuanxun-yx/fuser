@@ -1,8 +1,7 @@
 import numpy as np
 from numpy.linalg import lstsq
 
-from .registration import motion_correct
-from .drift import make_drift
+from .drift import make_drift, DriftConfig
 from .event import make_event
 
 
@@ -41,9 +40,7 @@ def run_glm(
     *,
     motion: np.ndarray = None,
     hemodynamic_lag: float,
-    drift_model: str | None = None,
-    high_pass: float | None = None,
-    drift_order: int | None = None,
+    drift_config: DriftConfig | None = None,
     max_time: float | None = None,
 ) -> np.ndarray:
     """
@@ -85,9 +82,12 @@ def run_glm(
         e = make_event(e, time_s, hemodynamic_lag=hemodynamic_lag)
         e = e.reshape(-1, 1)
         regressors.append(e)
-    if drift_model is not None:
+    if drift_config is not None:
         drift = make_drift(
-            time_s, model=drift_model, high_pass=high_pass, order=drift_order
+            time_s,
+            model=drift_config.model,
+            high_pass=drift_config.high_pass,
+            order=drift_config.order,
         )
         regressors.append(drift)
     regressors = np.concatenate(regressors, axis=-1)

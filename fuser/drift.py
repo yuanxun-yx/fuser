@@ -1,4 +1,12 @@
 import numpy as np
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class DriftConfig:
+    model: str
+    high_pass: float | None = None
+    order: int | None = None
 
 
 def make_drift(
@@ -9,7 +17,7 @@ def make_drift(
     order: int | None = None,
 ) -> np.ndarray:
     if model == "cosine":
-        if high_pass < 0:
+        if high_pass is None or high_pass < 0:
             raise ValueError("high_pass cannot be negative")
 
         time = time - time.min()
@@ -20,7 +28,7 @@ def make_drift(
         drift = np.cos(np.pi * ks * t / T)
         return drift
     elif model == "polynomial":
-        if order < 0:
+        if order is None or order < 0:
             raise ValueError("order cannot be negative")
 
         time = time - time.min()
