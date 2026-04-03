@@ -38,10 +38,10 @@ def run_glm(
     time: np.ndarray,
     events: list[np.ndarray],
     *,
-    motion: np.ndarray = None,
+    motion: np.ndarray | None = None,
+    time_mask: np.ndarray | None = None,
     hemodynamic_lag: float,
     drift_config: DriftConfig | None = None,
-    max_time: float | None = None,
 ) -> np.ndarray:
     """
     we don't use nilearn.first_level directly because data structure is not usual 4d array
@@ -99,15 +99,10 @@ def run_glm(
         regressors.append(motion)
     regressors = np.concatenate(regressors, axis=-1)
 
-    if max_time is None:
-        mask = None
-    else:
-        mask = time <= max_time
-
     beta = glm_fit(
         fus=data,
         regressors=regressors,
-        time_mask=mask,
+        time_mask=time_mask,
     )[:n_events, ...]
 
     return beta
