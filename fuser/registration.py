@@ -60,7 +60,9 @@ def register_atlas_to_fus(
     return voxel_annotations
 
 
-def motion_correct(data: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+def motion_correct(
+    data: np.ndarray, upsample_factor: int = 2
+) -> tuple[np.ndarray, np.ndarray]:
     res = np.empty_like(data)
     ref = data.mean(axis=(0, 1))
     motion = np.empty((*data.shape[:2], 3))
@@ -70,7 +72,7 @@ def motion_correct(data: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
             sh, *_ = phase_cross_correlation(
                 reference_image=ref,
                 moving_image=mv,
-                upsample_factor=2,
+                upsample_factor=upsample_factor,
             )
             motion[i, j, :] = sh
             res[i, j, ...] = shift(mv, sh, order=1)
