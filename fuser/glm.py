@@ -71,9 +71,8 @@ def run_glm(
         # z-score motion to prevent ill condition
         motion = (motion - motion.mean(axis=axis)) / motion.std(axis=axis)
 
-    # nuisance
     # per pose global signal
-    global_signal = np.mean(data, axis=(-3, -2, -1))
+    global_signal = data.mean(axis=(-3, -2, -1))
     # center global signal to prevent co-linear with intercept
     global_signal -= global_signal.mean()
 
