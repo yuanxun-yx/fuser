@@ -43,6 +43,7 @@ def run_glm(
     hemodynamic_lag: float,
     drift_model: str | None = None,
     high_pass: float | None = None,
+    drift_order: int | None = None,
     max_time: float | None = None,
 ) -> np.ndarray:
     """
@@ -85,7 +86,9 @@ def run_glm(
         e = e.reshape(-1, 1)
         regressors.append(e)
     if drift_model is not None:
-        drift = make_drift(time_s, model=drift_model, high_pass=high_pass)
+        drift = make_drift(
+            time_s, model=drift_model, high_pass=high_pass, order=drift_order
+        )
         regressors.append(drift)
     regressors = np.concatenate(regressors, axis=-1)
     regressors = regressors[inverse_idx, :]
