@@ -1,7 +1,7 @@
 import numpy as np
 from numpy.linalg import lstsq
 
-from .drift import make_drift, DriftConfig
+from .drift import DriftConfig, make_drift
 from .event import make_event
 
 
@@ -43,14 +43,6 @@ def run_glm(
     hemodynamic_lag: float,
     drift_config: DriftConfig | None = None,
 ) -> np.ndarray:
-    """
-    we don't use nilearn.first_level directly because data structure is not usual 4d array
-    the problem with fUS data is that time and space axes are coupled
-    data: (scan, pose, x, y, z)
-    time: (scan, pose)
-    space: (pose, x, y, z)
-    pose determines both time and space, therefore we cannot simply decouple data to (T, N)
-    """
     n_events = len(events)
 
     time_r = time.ravel()
