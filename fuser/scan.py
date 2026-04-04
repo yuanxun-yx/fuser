@@ -30,6 +30,7 @@ class Acquisition:
     voxels_to_probe: np.ndarray
     probe_to_lab: np.ndarray
     time: np.ndarray
+    dt: float
 
 
 @dataclass(frozen=True)
@@ -153,7 +154,7 @@ def read_scan(file) -> Scan:
         dy = read_raw(voxel_dim_group["dy"])
         dz = read_raw(voxel_dim_group["dz"])
         voxel_size = (dx, dy, dz)
-        # dt provided is not correct
+        # dt provided is not correct, see below
 
         check_valid_transform(voxels_to_probe)
         r = voxels_to_probe[:3, :3]
@@ -191,6 +192,7 @@ def read_scan(file) -> Scan:
         voxels_to_probe=voxels_to_probe,
         probe_to_lab=probe_to_lab,
         time=time,
+        dt=dt,
     )
 
     return Scan(
