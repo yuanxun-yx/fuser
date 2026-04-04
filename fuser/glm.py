@@ -1,5 +1,6 @@
 import numpy as np
 from numpy.linalg import lstsq
+from scipy.stats import zscore
 
 from .drift import DriftConfig, make_drift
 from .event import make_event
@@ -61,7 +62,7 @@ def run_glm(
         # remove axes (xyz) with all zeros
         motion = motion[..., ~np.all(motion == 0, axis=axis)]
         # z-score motion to prevent ill condition
-        motion = (motion - motion.mean(axis=axis)) / motion.std(axis=axis)
+        motion = zscore(motion, axis=axis)
 
     # per pose global signal
     global_signal = data.mean(axis=(-3, -2, -1))
