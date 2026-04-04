@@ -4,8 +4,8 @@ import numpy as np
 def mad_outlier_mask(
     x, thresh: float, axis: int | tuple[int] | None = None
 ) -> np.ndarray:
-    med = np.median(x, axis=axis)
-    mad = np.median(x - med, axis=axis)
+    med = np.median(x, axis=axis, keepdims=True)
+    mad = np.median(x - med, axis=axis, keepdims=True)
     with np.errstate(invalid="ignore", divide="ignore"):
         z = 0.6744897501960817 * (x - med) / mad
     bad = (np.abs(z) > thresh) & (mad != 0)

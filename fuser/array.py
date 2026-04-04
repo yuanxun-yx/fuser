@@ -50,6 +50,10 @@ def sum_by_membership(
     values: np.ndarray,
     mask: np.ndarray,
 ) -> np.ndarray:
+    """
+    values: (..., id)
+    mask: (roi, id)
+    """
     return (values[..., None, :] * mask).sum(axis=-1)
 
 
