@@ -1,11 +1,12 @@
 import numpy as np
 from scipy.ndimage import label, binary_fill_holes, binary_closing
 
-# ignore scan direction (y) because it usually doesn't include full size
-APPLY_AXES = (0, 2)
 
-
-def compute_valid_mask(data: np.ndarray, *, thresh: float) -> np.ndarray:
+def compute_valid_mask(
+    data: np.ndarray, *, thresh: float, ignore_axis="y"
+) -> np.ndarray:
+    # ignore scan direction (y) because it doesn't include full size
+    axes = (0, "xyz".index(ignore_axis) + 1)
     mean = data.mean(axis=0)
     threshold = np.percentile(mean, thresh)
     # (pose, x, y, z)
@@ -17,6 +18,6 @@ def compute_valid_mask(data: np.ndarray, *, thresh: float) -> np.ndarray:
         largest_label = np.argmax(sizes[1:]) + 1
         body_mask = labels == largest_label
         mask[i, ...] = binary_closing(
-            binary_fill_holes(body_mask, axes=APPLY_AXES), axes=APPLY_AXES
+            binary_fill_holes(body_mask, axes=axes), axes=axes
         )
     return mask
