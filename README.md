@@ -16,7 +16,7 @@ which makes existing fMRI pipelines unsuitable without substantial adaptation.
 
 <img src="assets/probe-slice.svg" width="250">
 
-*Source: [Brunner et al., Nature Protocol, 2021](https://doi.org/10.1038/s41596-021-00548-8), Fig. 3a*
+*Source: [Brunner et al., Nature Protocols, 2021](https://doi.org/10.1038/s41596-021-00548-8), Fig. 3c*
 
 fUS acquires one imaging plane at a time because ultrasound signals only encode depth 
 along the beam direction, while lateral dimensions are reconstructed within a 2D slice.
