@@ -6,7 +6,7 @@ from skimage.registration import phase_cross_correlation
 # in um
 BRAIN_ORIGIN_CCFv3_COORD_POST_INF_RIGHT = (5500, 5300, 6100)
 
-# Iconeous "brain" coordinate
+# Iconeus "brain" coordinate
 # direction: left, anterior, superior (dorsal)
 # origin: approx 4mm below Bregma
 # CCFv3 axis order: posterior, inferior, right
@@ -18,7 +18,7 @@ BRAIN_TO_ANNOTATION[0, 1] = -1
 BRAIN_TO_ANNOTATION[1, 2] = -1
 BRAIN_TO_ANNOTATION[2, 0] = -1
 BRAIN_TO_ANNOTATION[:3, 3] = BRAIN_ORIGIN_CCFv3_COORD_POST_INF_RIGHT
-# magic number from Iconeous: 4mm (4000 um)
+# magic number from Iconeus: 4mm (4000 um)
 BRAIN_TO_ANNOTATION[:3, :3] *= 4e3
 
 
