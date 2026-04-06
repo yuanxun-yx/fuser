@@ -23,6 +23,7 @@ authors = [
 readme = "README.md"
 license = "MIT"
 license-files = ["LICEN[CS]E*"]
+description = "fUSer is a Python package for analyzing functional ultrasound (fUS) imaging data."
 
 [project.urls]
 Homepage = "https://github.com/yuanxun-yx/fuser"
