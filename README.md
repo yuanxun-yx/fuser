@@ -12,7 +12,8 @@ This is an early-stage release. APIs may change.
 fMRI tooling (e.g., [nilearn](https://github.com/nilearn/nilearn)) is already mature and 
 well-developed, so building a new library for fUS may initially seem like reinventing the wheel.
 However, fUS data differ fundamentally in how they are acquired and structured, 
-which makes existing fMRI pipelines unsuitable without substantial adaptation.
+which means existing fMRI pipelines rely on implicit assumptions that 
+do not strictly hold for fUS data and therefore require substantial adaptation.
 
 <img src="assets/probe-slice.svg" width="250">
 
@@ -35,8 +36,10 @@ Time is given by the combination of (scan, pose), and space is given by (pose, x
 The probe sweep dimension (pose) therefore couples space and time: 
 each spatial slice is acquired at a different time point within a sweep. 
 Treating these slices as if they were acquired simultaneously (e.g., by using scan as time) 
-mixes signals from different time points and can bias downstream analyses.
-As a result, fUS data cannot be directly represented as a standard 4D (time, x, y, z) array.
+introduces a temporal misalignment, whose impact depends on the signal timescale and analysis type.
+In timing-sensitive analyses (e.g., GLM, event alignment, latency estimation), this can lead to systematic bias.
+As a result, fUS data are not strictly separable into independent time and space dimensions 
+and cannot be represented as a standard 4D (time, x, y, z) array without approximation.
 
 ![pose-time](assets/pose-time.svg)
 
