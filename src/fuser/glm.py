@@ -40,6 +40,8 @@ def run_glm(
     events: list[np.ndarray],
     *,
     motion: np.ndarray | None = None,
+    global_signal: bool = False,
+    intercept: bool = True,
     time_mask: np.ndarray | None = None,
     hemodynamic_lag: float,
     drift_config: DriftConfig | None = None,
@@ -51,23 +53,6 @@ def run_glm(
     inverse_idx = np.empty_like(idx)
     inverse_idx[idx] = np.arange(idx.size)
     time_s = time_r[idx]
-
-    if motion is not None:
-        if motion.shape[-1] != 3:
-            raise ValueError(
-                f"size of last dimension of motion should be 3, got {motion.shape[-1]}"
-            )
-        # left last axis only
-        axis = tuple(range(motion.ndim - 1))
-        # remove axes (xyz) with all zeros
-        motion = motion[..., ~np.all(motion == 0, axis=axis)]
-        # z-score motion to prevent ill condition
-        motion = zscore(motion, axis=axis)
-
-    # per pose global signal
-    global_signal = data.mean(axis=(-3, -2, -1))
-    # center global signal to prevent co-linear with intercept
-    global_signal -= global_signal.mean()
 
     regressors = []
     for e in events:
@@ -86,9 +71,27 @@ def run_glm(
     regressors = regressors[inverse_idx, :]
     regressors = regressors.reshape(*time.shape, regressors.shape[-1])
 
-    regressors = [regressors, global_signal[..., None], np.ones((*time.shape, 1))]
+    regressors = [regressors]
     if motion is not None:
+        if motion.shape[-1] != 3:
+            raise ValueError(
+                f"size of last dimension of motion should be 3, got {motion.shape[-1]}"
+            )
+        # left last axis only
+        axis = tuple(range(motion.ndim - 1))
+        # remove axes (xyz) with all zeros
+        motion = motion[..., ~np.all(motion == 0, axis=axis)]
+        # z-score motion to prevent ill condition
+        motion = zscore(motion, axis=axis)
         regressors.append(motion)
+    if global_signal:
+        # per pose global signal
+        global_signal_reg = data.mean(axis=(-3, -2, -1))
+        # center global signal to prevent co-linear with intercept
+        global_signal_reg -= global_signal_reg.mean()
+        regressors.append(global_signal_reg[..., None])
+    if intercept:
+        regressors.append(np.ones((*time.shape, 1)))
     regressors = np.concatenate(regressors, axis=-1)
 
     beta = glm_fit(
