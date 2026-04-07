@@ -5,6 +5,8 @@ from scipy.stats import zscore
 from .drift import DriftConfig, make_drift
 from .event import make_event
 
+VOLUME_AXES = (-3, -2, -1)
+
 
 def glm_fit(
     fus: np.ndarray,
@@ -41,6 +43,7 @@ def run_glm(
     *,
     motion: np.ndarray | None = None,
     global_signal: bool = False,
+    global_signal_mask: np.ndarray | None = None,
     intercept: bool = True,
     time_mask: np.ndarray | None = None,
     hemodynamic_lag: float,
@@ -86,10 +89,15 @@ def run_glm(
         regressors.append(motion)
     if global_signal:
         # per pose global signal
-        global_signal_reg = data.mean(axis=(-3, -2, -1))
+        if global_signal_mask is not None:
+            gs = (data * global_signal_mask).sum(
+                axis=VOLUME_AXES
+            ) / global_signal_mask.sum(axis=VOLUME_AXES)
+        else:
+            gs = data.mean(axis=VOLUME_AXES)
         # center global signal to prevent co-linear with intercept
-        global_signal_reg -= global_signal_reg.mean()
-        regressors.append(global_signal_reg[..., None])
+        gs -= gs.mean()
+        regressors.append(gs[..., None])
     if intercept:
         regressors.append(np.ones((*time.shape, 1)))
     regressors = np.concatenate(regressors, axis=-1)
