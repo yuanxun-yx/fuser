@@ -2,6 +2,7 @@ from .annotation import load_annotation
 from .drift import DriftConfig, make_drift
 from .glm import run_glm
 from .interpolate import interpolate_pose
+from .io import Scan, read_bps, read_scan
 from .mask import compute_valid_mask
 from .ontology import find_roi_ids
 from .plot import stripboxplot
@@ -12,4 +13,3 @@ from .qc import (
 )
 from .registration import motion_correct, register_atlas_to_fus
 from .roi import RoiAggregator
-from .scan import Scan, read_bps, read_scan
